@@ -348,4 +348,4 @@ A new skill is four small steps:
 4. Add the phrase to `i18n.py` / `i18n_study.py` in en, ru and uz. For a timed behaviour, write `job_<name>()` and add it to `schedule`.
 
 Ideas not built yet: Groq Whisper as a speech-recognition fallback, weekly progress report on Telegram, a browsing screen for songs/practice/games, practical
-driving-lesson log, a local wake-word model for "Linda" (so ambient audio need not go to Google).
+driving-lesson log, a local wake-word model for "Linda" (so ambient audio need not go to Google).# linda_1
