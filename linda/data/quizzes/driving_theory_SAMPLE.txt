@@ -1,0 +1,20 @@
+1. What does a solid red traffic light require a driver to do?
++ Stop before the stop line
+- Slow down and continue if the road is clear
+- Speed up to clear the intersection
+- Flash the headlights and continue
+
+2. When must you use the turn signal?
++ Before turning or changing lanes
+- Only at night
+- Only on highways
+- Only when other cars are close
+
+3. What should you do when an emergency vehicle with a siren approaches from behind?
++ Pull over safely and give way
+- Speed up
+- Stop in the middle of the lane
+- Ignore it if you have the right of way
+
+(SAMPLE: replace this file with your real questions. Use Linda: "convert my latest download to a quiz",
+then move the .txt from Downloads into this folder. File name = topic name, e.g. road_signs.txt.)

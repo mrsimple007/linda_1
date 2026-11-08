@@ -1,0 +1,17 @@
+# --- web mode (python server.py) ---
+fastapi
+uvicorn[standard]
+google-genai
+ollama>=0.6            # offline fallback + embeddings for notes search
+edge-tts
+sounddevice            # raw mic for music analysis / tuner
+numpy
+librosa
+pyyaml
+python-dotenv
+python-chess
+python-docx
+pypdf
+requests
+pyobjc-framework-EventKit
+httpx                  # only for tests/test_server.py

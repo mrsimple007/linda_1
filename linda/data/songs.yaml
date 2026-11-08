@@ -1,0 +1,32 @@
+# Your repertoire. Linda imports this at every start.
+# New songs are added; edited songs are updated.
+# status: learning | polishing | repertoire | archived
+# priority: 1 (low) .. 3 (high)
+# melody (optional): single-note line, e.g. "E5 D#5 E5"
+# target_bpm (optional): assumes one note per beat in the melody
+#
+# Use target_bpm and melody only when you have a specific
+# passage and tempo reference. Full songs may change tempo.
+
+songs:
+  - {title: "Una Mattina", artist: "Ludovico Einaudi", instrument: piano, status: repertoire, priority: 3}
+  - {title: "Nuvole Bianche", artist: "Ludovico Einaudi", instrument: piano, status: repertoire, priority: 3}
+  - {title: "Bella Ciao", artist: "Traditional", instrument: piano, status: repertoire, priority: 1}
+  - {title: "Dr. Dre", artist: "Piano arrangement", instrument: piano, status: repertoire, priority: 1}
+  - {title: "River Flows in You", artist: "Yiruma", instrument: piano, status: repertoire, priority: 3}
+  - {title: "Idea 10", artist: "Gibran Alcocer", instrument: piano, status: repertoire, priority: 2}
+  - {title: "Mariage d'Amour", artist: "Paul de Senneville", instrument: piano, status: repertoire, priority: 2}
+  - {title: "Experience", artist: "Ludovico Einaudi", instrument: piano, status: repertoire, priority: 3}
+  - {title: "Interstellar Main Theme", artist: "Hans Zimmer", instrument: piano, status: repertoire, priority: 3}
+  - {title: "I Giorni", artist: "Ludovico Einaudi", instrument: piano, status: repertoire, priority: 2}
+  - {title: "Giorni Dispari", artist: "Ludovico Einaudi", instrument: piano, status: repertoire, priority: 2}
+  - {title: "Winter Sonata", artist: "Unknown arrangement", instrument: piano, status: repertoire, priority: 1}
+  - {title: "Divenire", artist: "Ludovico Einaudi", instrument: piano, status: repertoire, priority: 2}
+  - {title: "Secret Garden", artist: "Arrangement to confirm", instrument: piano, status: repertoire, priority: 1}
+  - {title: "Hallelujah", artist: "Leonard Cohen", instrument: piano, status: repertoire, priority: 2}
+  - {title: "Nefeli", artist: "Ludovico Einaudi", instrument: piano, status: repertoire, priority: 2}
+  - {title: "Çalıkuşu", artist: "Arrangement to confirm", instrument: piano, status: repertoire, priority: 1}
+  - {title: "Comptine d'un autre été: L'après-midi", artist: "Yann Tiersen", instrument: piano, status: repertoire, priority: 2}
+  - {title: "Perfect", artist: "Ed Sheeran", instrument: piano, status: repertoire, priority: 1}
+  - {title: "My Heart Will Go On", artist: "Celine Dion", instrument: piano, status: repertoire, priority: 2}
+  - {title: "Tu sei", artist: "Ludovico Einaudi", instrument: piano, status: repertoire, priority: 2}

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Linda</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="start" role="dialog" aria-labelledby="st"><div>
+  <h1 id="st">Linda</h1>
+  <p>Click to start. In browser mode, allow the microphone.</p>
+  <button id="startBtn">Start</button>
+</div></div>
+
+<header>
+  <span class="brand">Linda</span>
+  <span class="pill"><i id="dot" title="Server connection"></i><span id="status">idle</span></span>
+  <span id="mode" title="Who is listening"></span>
+  <span class="grow"></span>
+  <select id="lang" aria-label="Language of built-in phrases" title="Linda answers in the language you speak. This sets only short built-in phrases.">
+    <option value="en">EN</option><option value="ru">RU</option><option value="uz">UZ</option>
+  </select>
+  <label title="Interrupt by speaking. Use headphones."><input type="checkbox" id="barge"> Barge-in</label>
+  <button id="micBtn" title="Stop or resume listening">🎙 on</button>
+  <span id="lat" title="Speech end to first audio"></span>
+</header>
+
+<main>
+  <aside aria-label="Your day">
+    <section><h2>Today</h2><ul id="calendar"></ul></section>
+    <section><h2>Tasks</h2><ul id="tasks"></ul></section>
+    <section><h2>Birthdays</h2><ul id="birthdays"></ul></section>
+    <section><h2>Memory</h2>
+      <div id="memTabs"><button data-tab="profile" class="on">Profile</button><button data-tab="goals">Goals</button><button data-tab="ideas">Ideas</button></div>
+      <ul id="memList"></ul>
+    </section>
+  </aside>
+
+  <section id="stage" aria-live="polite">
+    <div id="greet"><div id="gh"></div><div id="gd"></div></div>
+    <div id="orb" data-state="idle"><div class="ring"></div><div class="ring r2"></div><div class="core"></div></div>
+    <div id="transcript"></div>
+    <div id="answer"></div>
+    <div id="quizCard" class="hidden"><div id="quizHead"></div><div id="quizQ"></div><div id="quizOpts"></div></div>
+    <div id="chessWrap" class="hidden"><div id="board"></div><div id="chessStatus"></div></div>
+    <form id="ask" onsubmit="return false">
+      <input id="askInput" type="text" placeholder="Ask Linda anything…" autocomplete="off" aria-label="Message to Linda">
+      <label title="Read replies aloud"><input type="checkbox" id="speakToggle" checked>🔊</label>
+      <button id="askBtn">Send</button>
+    </form>
+  </section>
+
+  <aside aria-label="Progress">
+    <section><h2>Practice plan</h2><ul id="plan"></ul></section>
+    <section><h2>This week</h2><div id="practice"></div></section>
+    <section><h2>Notes galaxy</h2><canvas id="galaxy" width="320" height="240"></canvas><div id="galaxyLabel"></div></section>
+  </aside>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

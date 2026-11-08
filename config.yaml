@@ -1,0 +1,130 @@
+name: Linda
+user_name: "Muslimbek"
+default_language: "en"            # proactive announcements: en | ru | uz
+city: "Tashkent"                  # weather (was missing)
+downloads_dir: "~/Downloads"
+data_dir: "linda/data"
+db_path: "linda.db"
+
+server:                           # was missing, so defaults were used silently
+  host: "127.0.0.1"
+  port: 4700
+  local_ears: true                # Python mic + Whisper + stop word. false = browser speech recognition
+  open_browser: true
+  app_mode: false
+  browser: "Google Chrome"
+
+brain:                            # was missing
+  history_turns: 6
+  providers_first: true
+
+
+router: "local"                   # was missing: only used when Gemini is unavailable
+
+analysis:                         # was missing
+  record_seconds: 15
+
+calendar:
+  enabled: false                  # macOS denied access; set true after allowing it in
+                                  # System Settings > Privacy & Security > Calendars
+  remind_minutes: 10
+
+docs:
+  embed_model: "nomic-embed-text" # needs: ollama pull nomic-embed-text
+  folders: [notes, papers, projects, journal]
+  top_k: 5
+  answer_with: "local"
+
+goals:
+  driving_test_date: "2027-01-15"  # was "15/01/2027": it warned about the ambiguous format
+  weekly_practice_minutes: 150
+  instruments: [piano, guitar]
+
+practice:
+  stale_days: 14
+  default_minutes: 30
+
+quiz:
+  language: "uz"
+  questions_per_session: 10
+
+local:
+  model: "qwen3:8b"            # was llama3:latest (8B, slow, no tool calling). Run: ollama pull llama3.2:3b
+  keep_alive: "30m"
+  skip_offline_explain: False      # offline she uses short templates instead of letting the small model invent text
+
+gemini:
+  model: "gemini-3.6-flash"       # verify the name, see below
+  # models: ["gemini-3.6-flash", "<flash-lite name>"]   # enable after the gemini.py patch; separate quota per model
+  timeout_s: 15                   # used by the gemini.py patch: fail fast instead of 28 s stalls
+  max_output_tokens: 8192
+  minimal_thinking: true
+  grounding_for_chat: true
+
+stt:
+  model: "mlx-community/whisper-large-v3-turbo"
+  refine_with_gemini: false       # was true: it spent one extra Gemini call on every command
+
+tts:
+  engine: "edge"
+  edge_rate: "+8%"
+  say_rate: 190
+  voices:
+    en: {edge: "en-US-AvaMultilingualNeural", say: "Samantha"}   # Ana is a child voice; "Linda" is not a macOS voice
+    ru: {edge: "ru-RU-SvetlanaNeural",        say: "Milena"}
+    uz: {edge: "uz-UZ-MadinaNeural",          say: "Samantha"}
+
+audio:
+  sample_rate: 16000
+  vad_aggressiveness: 2
+  silence_ms: 550                 # was 700: she answers sooner after you stop talking
+  conversation_window_s: 12       # was 20: a long window lets her own voice count as a command
+  music_device: ""
+  wake_pattern: "(lin+d[aeoh]|lynd[ae]|linder|линд[аыуео])"
+
+birthdays:
+  announce_at: "09:00"
+  notify: true
+  greeting_language: "uz"         # was missing: the code reads it directly (birthday greetings)
+
+morning:
+  weather: true
+  news: true
+
+chess:
+  skill_level: 5
+  think_time: 0.3
+  window: true
+
+presets:
+  quiz_txt:
+    description: "rewrite a quiz/test document (tables with questions and answers) as plain text: numbered question, + right answer, - wrong answers"
+    prompt: |
+      Rewrite the attached quiz document as plain text with NO tables.
+      Use exactly this format for every question, with one blank line between questions:
+
+      1. Question text
+      + Right answer
+      - Wrong answer
+      - Wrong answer
+      - Wrong answer
+
+      Rules:
+      - Keep the original numbering, language and wording. Do not translate, shorten or reword. Fix only obvious spacing glitches.
+      - The right answer may be marked by **bold**, ==highlight==, ^^color^^, a check mark or + sign, or by a separate answer key or column. Find it carefully. The right answer is always printed first, with "+".
+      - Remove all formatting markers and the original answer letters or bullets.
+      - If a question has more or fewer than 3 wrong answers, keep exactly what the document has.
+      - If you truly cannot tell the right answer, print "+ ???" first.
+      - Output EVERY question. Never summarize, skip or add commentary.
+
+schedule:
+  - {id: morning,   at: "07:30", enabled: false}
+  - {id: birthdays, at: "09:00"}
+  - {id: practice,  at: "18:30"}
+  - {id: evening,   at: "21:00"}
+
+
+providers:                        # tried in order when Gemini is blocked
+  - {name: groq,    base_url: "https://api.groq.com/openai/v1", key_env: GROQ_API_KEY,    model: "openai/gpt-oss-120b"}
+  - {name: groq-20b, base_url: "https://api.groq.com/openai/v1", key_env: GROQ_API_KEY, model: "openai/gpt-oss-20b"}
+  - {name: mistral, base_url: "https://api.mistral.ai/v1",      key_env: MISTRAL_API_KEY, model: "mistral-small-latest"}   # check the exact name in the console

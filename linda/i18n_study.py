@@ -1,0 +1,40 @@
+"""Phrases for the study/practice modules (merged into i18n.S)."""
+
+def _(en, ru, uz):
+    return {"en": en, "ru": ru, "uz": uz}
+
+S_STUDY = {
+    "song_saved": _("Saved {title} for {instrument}.", "Добавила: {title}, {instrument}.", "Qo'shdim: {title}, {instrument}."),
+    "practice_logged": _("Logged {minutes} minutes. {week} minutes this week.", "Записала {minutes} минут. За неделю: {week} минут.", "{minutes} daqiqa yozildi. Hafta davomida: {week} daqiqa."),
+    "practice_logged_song": _("Logged {minutes} minutes on {title}. {week} minutes this week.", "Записала {minutes} минут: {title}. За неделю: {week} минут.", "{title}: {minutes} daqiqa yozildi. Hafta davomida: {week} daqiqa."),
+    "need_minutes": _("How many minutes? Say it again with the time.", "Сколько минут? Повтори с указанием времени.", "Necha daqiqa? Vaqtni aytib, qaytaring."),
+    "practice_nudge": _("You haven't practiced today.", "Сегодня ещё не было практики.", "Bugun hali mashq qilmadingiz."),
+    "plan_none": _("I have no songs or goals saved yet. Add a song first.", "Пока нет ни песен, ни целей. Сначала добавь песню.", "Hali qo'shiq yoki maqsad yo'q. Avval qo'shiq qo'shing."),
+    "plan_item": _("{minutes} minutes: {title}.", "{minutes} минут: {title}.", "{minutes} daqiqa: {title}."),
+    "record_start": _("Go ahead, I'm listening for {n} seconds.", "Играй, слушаю {n} секунд.", "Chalavering, {n} soniya tinglayman."),
+    "record_quiet": _("I barely heard anything. Check the microphone and try again.", "Почти ничего не слышно. Проверь микрофон и попробуй снова.", "Deyarli hech narsa eshitilmadi. Mikrofonni tekshirib, qayta urinib ko'ring."),
+    "tune_none": _("I couldn't hear a clear note.", "Не услышала чёткой ноты.", "Aniq nota eshitilmadi."),
+    "tune_in": _("{note}. In tune.", "{note}. Строй точный.", "{note}. Sozlangan."),
+    "tune_flat": _("{note}, {n} cents flat. Tune up.", "{note}, ниже на {n} центов. Подтяни.", "{note}, {n} sent past. Tarang qiling."),
+    "tune_sharp": _("{note}, {n} cents sharp. Tune down.", "{note}, выше на {n} центов. Ослабь.", "{note}, {n} sent baland. Bo'shating."),
+    "task_saved": _("Task added: {title}.", "Задача добавлена: {title}.", "Vazifa qo'shildi: {title}."),
+    "task_none": _("No open tasks.", "Открытых задач нет.", "Ochiq vazifalar yo'q."),
+    "task_count": _("Open tasks: {n}.", "Открытых задач: {n}.", "Ochiq vazifalar: {n} ta."),
+    "task_item": _("{title}{due}.", "{title}{due}.", "{title}{due}."),
+    "task_done": _("Done: {title}.", "Выполнено: {title}.", "Bajarildi: {title}."),
+    "task_notfound": _("I couldn't find that task.", "Не нашла такую задачу.", "Bunday vazifa topilmadi."),
+    "journal_saved": _("Saved to your journal.", "Записала в дневник.", "Kundalikka yozdim."),
+    "docs_none": _("I found nothing about that in your notes.", "В твоих заметках об этом ничего нет.", "Yozuvlaringizda bu haqda hech narsa topilmadi."),
+    "driving_logged": _("Logged: {score} of {total}.", "Записала результат: {score} из {total}.", "Natija yozildi: {total} dan {score}."),
+    "quiz_none": _("I found no quiz questions in the data quizzes folder.", "В папке с тестами нет вопросов.", "Testlar papkasida savollar topilmadi."),
+    "quiz_start": _("Quiz: {n} questions. Answer with the option number.", "Тест: {n} вопросов. Отвечай номером варианта.", "Test: {n} ta savol. Variant raqami bilan javob bering."),
+    "quiz_q": _("Question {i} of {n}.", "Вопрос {i} из {n}.", "{n} dan {i}-savol."),
+    "quiz_right": _("Correct!", "Верно!", "To'g'ri!"),
+    "quiz_wrong": _("Wrong. The right answer:", "Неверно. Правильный ответ:", "Noto'g'ri. To'g'ri javob:"),
+    "quiz_repeat": _("Say the option number: 1, 2, 3 or 4.", "Назови номер варианта: 1, 2, 3 или 4.", "Variant raqamini ayting: 1, 2, 3 yoki 4."),
+    "quiz_done": _("Finished: {c} of {n} correct.", "Готово: {c} из {n} верно.", "Tugadi: {n} dan {c} ta to'g'ri."),
+    "checkin_intro": _("Evening check-in. Practice today: {minutes} minutes, open tasks: {tasks}. How did your day go, and what is left for tomorrow?",
+                       "Вечерний итог. Практика сегодня: {minutes} минут, открытых задач: {tasks}. Как прошёл день и что осталось на завтра?",
+                       "Kechki xulosa. Bugungi mashq: {minutes} daqiqa, ochiq vazifalar: {tasks} ta. Kun qanday o'tdi va ertaga nima qoldi?"),
+    "review_saved": _("Saved. Tomorrow's focus: {focus}", "Сохранила. Фокус на завтра: {focus}", "Saqladim. Ertangi e'tibor: {focus}"),
+}
