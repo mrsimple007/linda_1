@@ -26,7 +26,10 @@ REVERSIBLE = {
     "journal_add", "log_driving", "mac", "music", "open_app", "practice_log",
     "remember", "save_note", "song_add", "task_add", "task_done", "timer",
     "tune", "analyze_playing", "chess", "quiz", "volume",
+    "telegram_send", "log_progress",
 }
+
+
 REQUEST_CUES = {
     "process_download": (
         re.compile(r"\b(convert|rewrite|summari[sz]e|extract|translate|rewrite|turn|make)\b|"
@@ -44,10 +47,6 @@ REQUEST_CUES = {
                    r"eslat|taymer|signal)\b", re.I),
         re.compile(r"\b(set|start|create|remind me|wake me|напомни|поставь|заведи|"
                    r"o'rnat|eslatib qo'y|uyg'ot)\b", re.I),
-    ),
-    "telegram_send": (
-        re.compile(r"telegram|телеграм|телеграмм", re.I),
-        re.compile(r"\b(send|forward|message|share)\b|отправ|перешл|yubor|jo'nat", re.I),
     ),
     "calendar_add": (
         re.compile(r"calendar|event|meeting|appointment|календар|событи|встреч|"

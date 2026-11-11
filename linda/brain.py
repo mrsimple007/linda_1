@@ -1,27 +1,67 @@
 """One command, in this order: sessions (chess/quiz/review) -> regex fast path -> providers (Groq/Mistral agent loop)
 -> Gemini (web questions, or when providers are down) -> local Ollama router.
 The agent loop lets the model READ the user's data (recall), act with a tool, read the result and then answer."""
-#linda.brain.py
+# linda/brain.py
 import contextvars, datetime, inspect, json, re, threading, time
 from concurrent.futures import ThreadPoolExecutor
 from google.genai import types
 from . import fastpath, memory_files, tools
-from .i18n import LANGS
 from .providers import build_providers, openai_tools, pick
 from .util import online
 from .web import CHANNEL, TURN
 
 
 SYSTEM = """You are {name}, {user}'s personal assistant and friend: warm, upbeat, a little playful, never stiff or corporate. Talk like a close friend who is also very capable: use his name now and then, celebrate small wins, add a quick encouraging word.
-Reply in the language of the user's latest message (English, Russian or Uzbek), even if earlier messages used another. Uzbek: Latin letters only (o‘, g‘, sh, ch), polite "siz", never mix scripts.
+Language: the user's message ends with a tag like [Reply in English.]. Follow that tag exactly, even if stored data or earlier messages are in another language. Never mix languages in one answer. Uzbek: Latin letters only (o‘, g‘, sh, ch), polite "siz".
 Everything you write is read aloud: 1-3 short sentences, no markdown, lists, emojis or URLs, unless the user asks for detail or a post.
 You have tools. When the user wants something DONE, call the matching tool (several in one turn if needed); before a tool call say a very short, varied lead-in (2-6 words). Answer general knowledge, translations, maths and advice yourself. Anything needing current web information (news, weather, sports, prices, "latest") uses web_answer.
-Memory: the index below lists what is stored. Before answering anything about the user's own data, and before saving, changing or deleting anything, call recall for that store and read the result, then decide whether to create, update or skip. Never claim something is missing without checking. After tools run, answer in the user's language, in your own words.
+Memory: the index below lists what is stored. Before answering anything about the user's own data, and before saving, changing or deleting anything, read it (stored data may already be attached below; otherwise call recall for that store) and decide whether to create, update or skip. Never claim something is missing without checking. State stored facts exactly as stored; do not add details that are not in the data. After tools run, answer in your own words.
 Use the music tool only when the user explicitly asks for music. If a required detail is missing, ask ONE short question.
 Now: {now}.{notes}"""
+NEWS_ASK = re.compile(r"\b(?:news|headlines)\b|новост|yangilik", re.I)
+BDAY_ASK = re.compile(r"\bbirthdays?\b.*\blist\b|\blist\b.*\bbirthdays?\b|список.*дн\w+ рожд|дни рождения.*список", re.I)
 SENT = re.compile(r"(?<=[.!?…])\s+|\n+")
 WEB = re.compile(r"\b(news|weather|latest|forecast|score|price|rate)\b|новост|погод|курс\b|yangilik|ob-?havo", re.I)
-QUICK = {"timer", "volume", "music", "mac", "open_app", "time", "battery", "telegram_send"}
+QUICK = {"timer", "volume", "music", "mac", "open_app", "time", "battery",
+         "telegram_send", "log_progress", "remember"}
+
+# Advice, planning, wishes: slower, longer, warmer, with the full picture of the user (voice commands stay fast and short).
+THINK = re.compile(
+    r"what should i|what (?:do|can) i do (?:today|now|tonight|next|with)|what to do|suggest|advice|recommend|any ideas|ideas for|"
+    r"i'?m bored|plan (?:my|the) (?:day|week|evening|weekend)|what do you think|help me (?:decide|choose|think|plan)|\bshould i\b|"
+    r"how (?:can|do) i (?:improve|learn|get better)|\bwish(?:es)?\b|congratulat|\bgift|present for|"
+    r"что мне делать|чем заняться|посоветуй|предложи|идеи|что думаешь|поздрав|подарок|"
+    r"nima qilsam|nima qilay|maslahat|taklif|fikring|tabrik|sovg['‘’ʻ`]?a", re.I)
+THINK_RULES = (
+    "Mode: thoughtful friend and coach for {user}. Think about what you know of him first: goals, ideas, interests, "
+    "projects, open tasks, recent work, practice, the journal. This mode overrides the 1-3 sentence limit: answer in 4-7 "
+    "warm, natural sentences, still no markdown, lists or emojis, because it is read aloud.\n"
+    "- 'What should I do' and similar: give 2-3 concrete suggestions tied to his goals and plans, say briefly why each "
+    "fits, then ask which one to put on his task list. Do NOT just read back his tasks. When he agrees (even with 'yes' "
+    "or 'the first one'), call task_add once per task, using the suggestions from the conversation.\n"
+    "- Wishes, greetings, messages, posts: write the full text, warm and personal to that person (relation, age from "
+    "'turning', shared facts from about_person). Write it in the recipient's greeting_lang if given; otherwise in the "
+    "language that person most likely speaks (Uzbek for Uzbek names) and say which language you chose. For a birthday, "
+    "add 2-3 specific gift ideas. When he asks to send it, call telegram_send with the whole text (the Reply tag governs "
+    "your spoken answer, not the language of the message you send), then tell him in 2-3 sentences what you sent, "
+    "including the gift ideas.\n"
+    "- Be honest and useful: give your own view and a reason, not flattery.")
+
+LANG_NAME = {"en": "English", "ru": "Russian", "uz": "Uzbek"}
+UZ_MARK = re.compile(r"\b(qachon|nima|mening|menga|bugun|kecha|qanday|iltimos|bormi|tug['‘’ʻ`]?ilgan|yo['‘’ʻ`]q)\b", re.I)
+
+
+def reply_lang(text, tag):
+    """The reply language is decided here, not by the model.
+    Cyrillic majority -> ru; Uzbek marker words -> uz; the Whisper/UI tag only counts on longer phrases; else English."""
+    letters = re.findall(r"[^\W\d_]", text or "")
+    if letters and sum("\u0400" <= c <= "\u04ff" for c in letters) / len(letters) > 0.5:
+        return "ru"                       # a Cyrillic name inside an English sentence does not flip it
+    if UZ_MARK.search(text or ""):
+        return "uz"
+    if tag in ("ru", "uz") and len((text or "").split()) >= 5:
+        return tag
+    return "en"
 
 
 LOCAL_MEMORY = [
@@ -33,7 +73,8 @@ LOCAL_MEMORY = [
 
 def is_quota_error(e):
     s = str(e)
-    return getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in s or s.lstrip().startswith("429")
+    return getattr(e, "code", None) == 429 or "RESOURCE_EXHAUSTED" in s or s.lstrip().startswith("429") \
+        or "RateLimitError" in repr(e) or "rate limit" in s.lower()
 
 
 def retry_seconds(e, default=3600.0):
@@ -45,6 +86,15 @@ def retry_seconds(e, default=3600.0):
     if m:
         return int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + float(m.group(3))
     return default
+
+
+def short_wait(e):
+    """Seconds a provider asks us to wait ('try again in 2.5s' / '1m3.2s'); 99 if unknown."""
+    m = re.search(r"try again in (?:(\d+)m)?(\d+(?:\.\d+)?)s", str(e))
+    if m:
+        return int(m.group(1) or 0) * 60 + float(m.group(2))
+    m = re.search(r"try again in (\d+)ms", str(e))
+    return int(m.group(1)) / 1000 if m else 99.0
 
 
 def _guard(fn, on_quota):
@@ -82,6 +132,10 @@ def _undouble(s):
         if h > 8 and s[:h] == s[h + len(sep):] and s[h:h + len(sep)] == sep:
             return s[:h]
     return s
+
+
+def _tool_name(d):
+    return (d.get("function") or {}).get("name") if isinstance(d, dict) else None
 
 
 class Capture:
@@ -141,9 +195,12 @@ class Brain:
         print(f"\n[you] ({lang}) {text}")
         self.cancel = ev = threading.Event()
         TURN.set(ev)
-        ag.lang, ag._produced, self.speaker.turn_log = (lang if lang in LANGS else "en"), False, []
+        self._spoke = False
+        ag.lang, ag._produced, self.speaker.turn_log = reply_lang(text, lang), False, []
         try:
-            if ag.chess and ag.chess_turn(text):
+            if ag.pending_actions and ag.handle_confirmation(text):
+                timer.route = "confirmation"
+            elif ag.chess and ag.chess_turn(text):
                 timer.route = "session:chess"
             elif ag.quiz and ag.quiz_turn(text):
                 timer.route = "session:quiz"
@@ -153,6 +210,14 @@ class Brain:
                 timer.route = "session:review"
             elif fastpath.try_fast(ag, text, self.set_lang):
                 timer.route = "fast"
+            elif NEWS_ASK.search(text) and len(text.split()) <= 14:      # RSS + LLM: never waits on Gemini's quota
+                timer.route = "news"
+                tools.execute(ag, "news", {}, text)
+                self._spoke = True
+            elif BDAY_ASK.search(text) and len(text.split()) <= 14:      # full list straight from the database
+                timer.route = "birthdays"
+                tools.execute(ag, "list_birthdays", {}, text)
+                self._spoke = True
             elif (self.cfg["brain"].get("providers_first", True) and self.providers
                   and not WEB.search(text) and self._remote_fallback(text)):
                 timer.route = "provider"
@@ -207,12 +272,14 @@ class Brain:
             return ""
 
     def _system(self, full=True):
-        notes = self.agent.store.notes(20)
+        # Provider path (full=False): no profile/notes dump. The prefetch and recall bring only the matching
+        # lines, which saves ~1K tokens a step and stops stale Uzbek profile text from competing with the data.
+        notes = self.agent.store.notes(20) if full else []
         block = ("\nThings the user asked you to remember:\n- " + "\n- ".join(notes)) if notes else ""
-        ctx = memory_files.context_block()
+        ctx = memory_files.context_block() if full else ""
         return (SYSTEM.format(name=self.cfg["name"], user=self.cfg.get("user_name") or "the user",
                               now=datetime.datetime.now().strftime("%A %Y-%m-%d %H:%M"), notes=block)
-                + "\n\n" + (ctx if full else ctx[:1200]) + "\n\n" + self._facts())
+                + ("\n\n" + ctx if ctx else "") + "\n\n" + self._facts())
 
     # ---- provider agent loop (Groq / Mistral) --------------------------
     def _remote_fallback(self, text):
@@ -220,7 +287,7 @@ class Brain:
 
     def _call(self, name, args, text):
         if name == "recall":
-            return tools.recall_data(self.agent, args)
+            return tools.recall_data(self.agent, args, text)
         ag, real = self.agent, self.agent.speaker
         cap = Capture(real)
         ag.speaker = cap
@@ -235,21 +302,53 @@ class Brain:
         print(f"[tool result] {name} -> {res[:200]}")
         return res
 
+    def _try(self, p, msgs, tool_defs, step, think=False):
+        """One provider call. Mid-turn, a short rate-limit wait is better than dropping to a weaker model."""
+        opts = {"effort": "medium", "temp": 0.7, "timeout": 25} if think else {}
+        try:
+            return p.chat(msgs, tool_defs, **opts)
+        except Exception as e:
+            wait = short_wait(e)
+            if is_quota_error(e) and step > 0 and wait <= 6:
+                print(f"[{p.name}] rate limit, waiting {wait:.1f}s")
+                time.sleep(wait + 0.3)
+                return p.chat(msgs, tool_defs, **opts)
+            raise
+
     def _agent_loop(self, text):
-        ag, ev, acted, last = self.agent, self.cancel, False, []
-        defs = pick(self.oa_tools, text)
-        msgs = [{"role": "system", "content": self._system(full=False)}]
-        msgs += [{"role": "assistant" if r == "model" else "user", "content": m} for r, m in self.history]
-        msgs.append({"role": "user", "content": f"{text}\n\n[Reply only in the language of the message above.]"})
+        ag, ev, acted, last, done = self.agent, self.cancel, False, [], []
+        L = LANG_NAME.get(ag.lang, "English")
+        defs = list(pick(self.oa_tools, text))
+        if not any(_tool_name(d) == "recall" for d in defs):          # reading must always be possible
+            defs += [d for d in self.oa_tools if _tool_name(d) == "recall"]
+        think = bool(THINK.search(text))
+        ctx = tools.prefetch(ag, text, think=think)
+        system = self._system(full=think)
+        if ctx:
+            system += ("\n\nStored data already searched for this message. Answer from it. Call recall only if "
+                       "something is missing, and never say something is missing before reading this:\n" + ctx)
+        system += (f"\n\nRules: answer in {L}. State relations exactly as stored (nephew stays nephew; add no "
+                   "older/younger or other details). A birthday row with match=partial is a different person with a "
+                   "similar name: say so. If several people fit (e.g. several brothers), list them all. "
+                   "For a question about one day, use recall(kind='day') once.")
+        if think:
+            system += "\n\n" + THINK_RULES.format(user=self.cfg.get("user_name") or "the user")
+        msgs = [{"role": "system", "content": system}]
+        n_hist = int(self.cfg["brain"].get("provider_history_turns", 2) or 0)       # follow-ups ("yes, add it") need the last turns
+        n_hist = max(n_hist, 3) if think else n_hist
+        for role, m in (self.history[-2 * n_hist:] if n_hist else []):
+            msgs.append({"role": "assistant" if role == "model" else "user", "content": m})
+        msgs.append({"role": "user", "content": f"{text}\n\n[Reply in {L}.]"})
 
         for step in range(4):
+            tool_defs = defs if step < 3 else None
             print(f"[loop] step {step}: ~{(len(json.dumps(msgs, default=str)) + len(json.dumps(defs))) // 4} tokens in, {len(defs)} tools")
             m, used = None, ""
             for p in self.providers:
                 if not p.ready():
                     continue
                 try:
-                    r = p.chat(msgs, self.oa_tools if step < 3 else None)
+                    r = self._try(p, msgs, tool_defs, step, think)
                 except Exception as e:
                     p.cool(e)
                     print(f"[{p.name}] failed: {repr(e)[:150]}")
@@ -261,7 +360,12 @@ class Brain:
                 break
             if m is None:
                 if acted:
-                    ag.k("error")
+                    ok = [x for x in done if not x.startswith("error")]
+                    if ok:
+                        ag.say(" ".join(ok))             # the action worked: say its result, not a bare error
+                    else:
+                        ag.k("error")
+                    self._spoke = True
                     return True
                 return False
             calls = m.tool_calls or []
@@ -272,8 +376,9 @@ class Brain:
                 ag.say(_undouble(m.content) or " ".join(last) or "Done.")
                 self._spoke = True
                 return True
-            if (m.content or "").strip():
-                ag.say(_undouble(m.content))                       # the short friendly lead-in
+            # the short lead-in is spoken only before real actions, not before a silent recall
+            if (m.content or "").strip() and any(c.function.name != "recall" for c in calls):
+                ag.say(_undouble(m.content))
                 self._spoke = True
             msgs.append({"role": "assistant", "content": m.content or "", "tool_calls": [
                 {"id": c.id, "type": "function", "function": {"name": c.function.name, "arguments": c.function.arguments or "{}"}}
@@ -287,13 +392,22 @@ class Brain:
                 res = self._call(c.function.name, args, text)
                 acted = acted or c.function.name != "recall"
                 outs.append((c.function.name, res))
-                msgs.append({"role": "tool", "tool_call_id": c.id, "content": res[:6000]})
+                # the language tag goes to the model only; `outs` stays clean because QUICK results are spoken verbatim
+                msgs.append({"role": "tool", "tool_call_id": c.id, "content": res[:6000] + f"\n[Reply in {L}.]"})
+
             last = [o for n, o in outs if n != "recall"]
-            if all(n in QUICK for n, _ in outs):
-                ag.say(" ".join(o for _, o in outs))
+            done += last
+            if ag.pending_actions:                       # a tool asked for confirmation: say it once, stop
+                ag.say(" ".join(last))
                 self._spoke = True
                 return True
-        return True
+            quick = QUICK - {"telegram_send"} if think else QUICK      # in think mode the model says what it sent
+            if last and all(n in quick for n, _ in outs if n != "recall"):
+                ag.say(" ".join(last))
+                self._spoke = True
+                return True
+            # otherwise fall through: next step, the model reads the tool results and answers
+        return True                                      # after the for loop, NOT inside it
 
     # ---- Gemini path (web questions or when providers are down) ----------
     def _flush(self, buf):
@@ -310,8 +424,9 @@ class Brain:
         return rest
 
     def _llm(self, text, ev, timer):
+        L = LANG_NAME.get(self.agent.lang, "English")
         contents = [types.Content(role=r, parts=[types.Part.from_text(text=m)]) for r, m in self.history]
-        contents.append(types.Content(role="user", parts=[types.Part.from_text(text=text)]))
+        contents.append(types.Content(role="user", parts=[types.Part.from_text(text=f"{text}\n\n[Reply in {L}.]")]))
         buf, calls, self._spoke = "", [], False
         for chunk in self.gemini.stream_tools(contents, self._system(), self.decls,
                                               self.cfg["gemini"].get("brain_model") or None):

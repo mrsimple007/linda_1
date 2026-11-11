@@ -53,7 +53,7 @@ def build_deps(cfg):
             cal = Calendar()
         except Exception as e:
             print("[calendar disabled]", e)
-    tg = Telegram.from_env()
+    tg = Telegram.from_env(cfg)
     if not tg:
         print("[telegram not configured] run: python telegram_setup.py")
     return SimpleNamespace(store=store, gemini=gemini, docs=Docs(store, cfg["docs"], data_dir), cal=cal, tg=tg)
@@ -564,6 +564,9 @@ def create_app(cfg, deps, start_background=True, synth=None, recorder=None):
                     print("[docs] mirror failed:", e)
                 print(f"[docs] indexed {deps.docs.index()} new/changed files")
             threading.Thread(target=index_docs, daemon=True).start()
+            if deps.tg:                                          # Telegram: /start /news ... and filing what you write
+                from linda import briefing
+                briefing.start_telegram(agent, deps.tg)
             tasks.append(asyncio.create_task(refresher()))
             if local_ears:
                 start_local_ears(loop)

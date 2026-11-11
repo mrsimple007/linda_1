@@ -78,9 +78,14 @@ def _title(text):
     return head.strip(" .,!?").capitalize() or "Idea"
 
 
+_SW = {"the", "and", "for", "with", "that", "this", "about", "from", "line", "goal", "idea", "note",
+       "delete", "remove", "done", "mark", "finished", "completed", "have", "was", "are", "you", "your"}
+
 def _find(lines, query, file):
-    """Index of the best matching entry (ideas: its ### heading; others: its bullet line)."""
-    q, best, score = _words(query), None, 0
+    q = _words(query) - _SW
+    if not q:
+        return None
+    best, score = None, 0
     for i, l in enumerate(lines):
         if file == "ideas":
             if not l.startswith("### "):
@@ -93,7 +98,7 @@ def _find(lines, query, file):
         s = len(q & _words(block))
         if s > score:
             best, score = i, s
-    return best
+    return best if score >= min(2, len(q)) else None
 
 
 def save(file, text, section=None):

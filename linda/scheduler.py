@@ -1,10 +1,12 @@
-"""Time-based triggers (morning briefing, practice reminder, evening check-in, birthdays).
+"""Time-based triggers (morning briefing, practice reminder, evening check-in, birthdays, Telegram morning message).
 Each job runs at most once per day; if Linda starts late it still runs inside the job's grace window."""
 import datetime, time
 
 JOB_ACTIONS = {"morning": "morning_briefing", "practice": "practice_reminder",
-               "evening": "evening_checkin", "birthdays": "birthdays"}
+               "evening": "evening_checkin", "birthdays": "birthdays",
+               "telegram_morning": "telegram_morning"}
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+MAX_TRIES = 5          # telegram_morning: attempts per day (e.g. no internet right after the Mac wakes up)
 
 
 def due_jobs(jobs, store, now):
@@ -22,15 +24,41 @@ def due_jobs(jobs, store, now):
         yield j
 
 
+def _run(agent, name):
+    """True = done (or nothing to retry), False = failed and worth retrying."""
+    if name == "telegram_morning":
+        from . import briefing
+        tg = getattr(agent, "tg", None)
+        if tg is None:
+            print("[scheduler] telegram_morning: Telegram is not configured")
+            return True
+        return briefing.send_morning(agent, tg) is not False
+    getattr(agent, "job_" + name)()
+    return True
+
+
+def run_due(cfg, store, agent, now, tries):
+    for j in list(due_jobs(cfg.get("schedule", []), store, now)):
+        key = f"job:{j['id']}"
+        store.set(key, str(now.date()))
+        name = j.get("action") or JOB_ACTIONS.get(j["id"], j["id"])
+        try:
+            ok = _run(agent, name)
+        except Exception as e:
+            print(f"[scheduler] {j['id']}: {e!r}")
+            ok = name != "telegram_morning"          # only the Telegram job is retried; the others never loop
+        if not ok:
+            tk = f"{j['id']}:{now.date()}"
+            tries[tk] = tries.get(tk, 0) + 1
+            if tries[tk] < MAX_TRIES:
+                store.set(key, "")                   # not marked done: the next pass (30 s) tries again
+                print(f"[scheduler] {j['id']} failed, retry {tries[tk]}/{MAX_TRIES - 1}")
+
+
 def run_loop(cfg, store, agent):
+    tries = {}
     while True:
-        now = datetime.datetime.now()
-        for j in list(due_jobs(cfg.get("schedule", []), store, now)):
-            store.set(f"job:{j['id']}", str(now.date()))
-            try:
-                getattr(agent, "job_" + (j.get("action") or JOB_ACTIONS.get(j["id"], j["id"])))()
-            except Exception as e:
-                print(f"[scheduler] {j['id']}: {e!r}")
+        run_due(cfg, store, agent, datetime.datetime.now(), tries)
         time.sleep(30)
 
 

@@ -86,9 +86,16 @@ class Store:
 
     # ---- birthdays ----
     def add_birthday(self, name, day, month, year=None, relation="", lang=""):
+        name = name.strip()
+        old = self.q("SELECT year, relation, lang FROM birthdays WHERE name = ?", (name,))
+        if old:
+            year = year or old[0][0]
+            relation = relation.strip() or old[0][1] or ""
+            lang = lang or old[0][2] or ""
         self.x("INSERT OR REPLACE INTO birthdays(name,day,month,year,relation,lang) VALUES (?,?,?,?,?,?)",
-               (name.strip(), day, month, year or None, relation.strip(), lang))
+            (name, day, month, year or None, relation.strip(), lang))
 
+    
     def delete_birthday(self, name):
         return self.x("DELETE FROM birthdays WHERE name = ?", (name.strip(),)).rowcount > 0
 
