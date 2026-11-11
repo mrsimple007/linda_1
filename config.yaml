@@ -63,8 +63,9 @@ gemini:
 
 stt:
   model: "mlx-community/whisper-large-v3-turbo"
-  refine_with_gemini: false       # was true: it spent one extra Gemini call on every command
-
+  engine: "whisper"
+  refine_with_gemini: false
+  
 tts:
   engine: "edge"
   edge_rate: "+8%"
@@ -93,7 +94,7 @@ morning:
 
 chess:
   skill_level: 5
-  think_time: 0.3
+  think_time: 0.6
   window: true
 
 presets:

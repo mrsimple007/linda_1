@@ -388,40 +388,40 @@ class Agent(PracticeMixin, QuizMixin, TaskMixin, DocsMixin, ReviewMixin):
             self.say(greeting, lang)
 
     # ---------- telegram ----------
-def send_last(self, text=""):
-    if not self.tg:
-        self.k("tg_missing")
-        return {"status": "failed", "error": "telegram not configured"}
-    if text:
-        args = {"kind": "message", "text": text}
-        send = lambda: self.tg.send(text)
-    elif self.last_file:
-        args = {"kind": "file", "path": str(self.last_file)}
-        path = self.last_file
-        send = lambda: self.tg.send_file(path)
-    elif self.last_reply:
-        reply = self.last_reply
-        args = {"kind": "message", "text": reply}
-        send = lambda: self.tg.send(reply)
-    else:
-        self.k("tg_nothing")
-        return {"status": "failed", "error": "nothing to send"}
+    def send_last(self, text=""):
+        if not self.tg:
+            self.k("tg_missing")
+            return {"status": "failed", "error": "telegram not configured"}
+        if text:
+            args = {"kind": "message", "text": text}
+            send = lambda: self.tg.send(text)
+        elif self.last_file:
+            args = {"kind": "file", "path": str(self.last_file)}
+            path = self.last_file
+            send = lambda: self.tg.send_file(path)
+        elif self.last_reply:
+            reply = self.last_reply
+            args = {"kind": "message", "text": reply}
+            send = lambda: self.tg.send(reply)
+        else:
+            self.k("tg_nothing")
+            return {"status": "failed", "error": "nothing to send"}
 
-    try:
-        done = self.run_action("telegram_send", args, send)
-    except Exception as e:
-        print("[telegram]", e)
-        self.k("tg_fail")
-        return {"status": "failed", "error": str(e)[:100]}
-    if done:
-        self.say({"en": "Sent to your Telegram.",
-                  "ru": "Отправила в Telegram.",
-                  "uz": "Telegramga yubordim."}[self.lang])
-        return {"status": "sent"}
-    return {"status": "waiting_for_confirmation"}
+        try:
+            done = self.run_action("telegram_send", args, send)
+        except Exception as e:
+            print("[telegram]", e)
+            self.k("tg_fail")
+            return {"status": "failed", "error": str(e)[:100]}
+        if done:
+            self.say({"en": "Sent to your Telegram.",
+                    "ru": "Отправила в Telegram.",
+                    "uz": "Telegramga yubordim."}[self.lang])
+            return {"status": "sent"}
+        return {"status": "waiting_for_confirmation"}
 
-def do_telegram_send(self, it, text):
-    return self.send_last(it.text.strip())
+    def do_telegram_send(self, it, text):
+        return self.send_last(it.text.strip())
 
     # ---------- calendar ----------
     def _cal(self):

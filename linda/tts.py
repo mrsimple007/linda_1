@@ -42,6 +42,9 @@ class Speaker:
             os.remove(path)
 
     def _synth_loop(self):
+        t0 = time.time()
+        asyncio.run(self._edge(text, voice["edge"], path))
+        print(f"[tts] synth {time.time() - t0:.2f}s: {text[:30]!r}")
         while True:
             text, lang, gen = self.q.get()
             if gen != self.gen:

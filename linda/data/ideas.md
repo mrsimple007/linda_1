@@ -266,3 +266,59 @@ Periodically:
 - **Added:** 2026-11-05
 
 app that turns lectures into quizzes
+
+### Add a humanizer feature that outputs a motivational
+- **Status:** raw
+- **Potential:** medium
+- **Added:** 2026-11-11
+
+Add a Humanizer feature that outputs a motivational letter in docx format and includes an API for generation
+
+### Enable linda to add more context about muslimbek
+- **Status:** raw
+- **Potential:** medium
+- **Added:** 2026-11-11
+
+Enable Linda to add more context about Muslimbek by retrieving personal information from ChatGPT for motivational letters, ideas, goals, etc.
+
+### Fix the quiz format so that any provided
+- **Status:** raw
+- **Potential:** medium
+- **Added:** 2026-11-11
+
+Fix the quiz format so that any provided docx file is automatically converted into the correct quiz structure
+
+### Integrate google sheets for finance analysis, allowing spoken
+- **Status:** raw
+- **Potential:** medium
+- **Added:** 2026-11-11
+
+Integrate Google Sheets for finance analysis, allowing spoken commands like '+ 100000 salary' to update the appropriate database tables with amounts, dates, and expense details automatically
+
+### Apply the same google sheets integration for business
+- **Status:** raw
+- **Potential:** medium
+- **Added:** 2026-11-11
+
+Apply the same Google Sheets integration for business finance tracking
+
+### Combine simple slides with a simple quizzer and
+- **Status:** raw
+- **Potential:** medium
+- **Added:** 2026-11-11
+
+Combine Simple Slides with a simple quizzer and provide statistics about bots, new users, and other metrics
+
+### Create a chess integration that accepts lichess game
+- **Status:** raw
+- **Potential:** medium
+- **Added:** 2026-11-11
+
+Create a chess integration that accepts lichess game files, analyzes them, identifies weaknesses, suggests plans, and sends puzzles to Telegram or another interface
+
+### Build a second brain system that saves everything
+- **Status:** raw
+- **Potential:** medium
+- **Added:** 2026-11-11
+
+Build a Second Brain system that saves everything Linda is told, organizes information into notes and projects, remembers decisions and important details, searches across conversations, connects related ideas automatically, and retrieves information using natural language

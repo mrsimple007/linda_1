@@ -1,8 +1,7 @@
 """OpenAI-compatible providers (Groq, Mistral). Each has its own cooldown. Tool list = CORE + recall."""
-import json, os, time
+import json, os, re, time
 from openai import OpenAI
 from . import tools
-import re
 
 # Read-only tools are gone: recall covers them. Only actions that write or do something stay.
 CORE = {"task_add", "task_done", "timer", "plan", "stats", "practice_log", "song_add", "add_birthday",
@@ -10,7 +9,6 @@ CORE = {"task_add", "task_done", "timer", "plan", "stats", "practice_log", "song
         "time", "battery", "volume", "music", "mac", "open_app", "chess", "quiz", "remember",
         "calendar_agenda", "calendar_add", "log_driving", "telegram_send"}
 _T = {"string": "string", "integer": "integer", "boolean": "boolean"}
-
 
 BASE = {"recall", "task_add", "task_done", "add_birthday", "delete_birthday", "journal_add", "log_progress",
         "save_note", "practice_log", "song_add", "telegram_send", "music", "remember"}
@@ -25,6 +23,20 @@ EXTRA = [
     (r"\bgoal|\bidea|цель|идея|maqsad", {"complete_goal", "remove_note"}),
     (r"\btime\b|battery|время|батаре|soat|batareya", {"time", "battery"}),
 ]
+
+RECALL_KINDS = ["all", "day", "birthdays", "tasks", "songs", "practice", "profile", "goals", "ideas",
+                "progress", "journal", "notes", "memory", "capabilities", "advice"]
+RECALL_DESC = (
+    "Read the user's saved data. Call it before answering questions about their data and before saving, changing or "
+    "deleting anything. kind: "
+    "day = everything for one date (journal, work log, practice, finished tasks): use it for 'yesterday', 'today' or a date; "
+    "birthdays = people with date and relation (brother, friend...); tasks = open tasks; songs; practice; "
+    "profile / goals / ideas = the user's own files; progress = work log by project; "
+    "journal = diary entries; memory = quick notes saved with 'remember that...'; "
+    "notes = semantic search of notes/papers/projects; capabilities = what Linda can do plus her improvement log; advice = goals, ideas, profile, tasks, recent work, journal, practice and songs (+ the person if named) for suggestions, plans and wishes; all = search everything. "
+    "query: words to filter by (names, relations, topics); empty lists everything. "
+    "A birthday row with match=partial is only a similar name, not the person asked about."
+)
 
 
 def pick(defs, text):
@@ -43,9 +55,11 @@ def openai_tools():
         props = {k: {"type": _T[tp], "description": d} for k, (tp, d) in params.items()}
         out.append({"type": "function", "function": {"name": name, "description": desc,
                     "parameters": {"type": "object", "properties": props, "required": required or []}}})
-    out.append({"type": "function", "function": {"name": "recall",
-        "description": "Read the user's saved data. Call it before answering questions about their data and before saving, changing or deleting anything. kind: birthdays, tasks, songs, practice, profile, goals, ideas, progress (work log), journal (diary entries of the last 7 days, with dates), notes (semantic search of notes/papers/projects/journal) or all. query: words to filter by (names, topics); empty lists everything.",
-        "parameters": {"type": "object", "properties": {"kind": {"type": "string"}, "query": {"type": "string"}}, "required": ["kind"]}}})
+    out.append({"type": "function", "function": {"name": "recall", "description": RECALL_DESC,
+        "parameters": {"type": "object",
+                       "properties": {"kind": {"type": "string", "enum": RECALL_KINDS},
+                                      "query": {"type": "string", "description": "names, relation or topic words; may be empty"}},
+                       "required": ["kind"]}}})
     return out
 
 
@@ -68,13 +82,14 @@ class Provider:
             pass
         self.cool_until = time.time() + min(max(wait, 5.0), 3600.0)
 
-    def chat(self, msgs, tool_defs):
-        kw = dict(model=self.model, messages=msgs, max_tokens=2500, temperature=0.3)
+    def chat(self, msgs, tool_defs, effort="low", temp=0.3, timeout=None):
+        kw = dict(model=self.model, messages=msgs, max_tokens=2500, temperature=temp)
         if tool_defs:
             kw.update(tools=tool_defs, tool_choice="auto")
         if "gpt-oss" in self.model:
-            kw["extra_body"] = {"reasoning_effort": "low"}     # check Groq's reasoning page; remove if it errors
-        return self.client.chat.completions.create(**kw).choices[0].message
+            kw["extra_body"] = {"reasoning_effort": effort}     # check Groq's reasoning page; remove if it errors
+        client = self.client.with_options(timeout=timeout) if timeout else self.client
+        return client.chat.completions.create(**kw).choices[0].message
 
 
 def build_providers(cfg):

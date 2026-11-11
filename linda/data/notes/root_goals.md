@@ -229,3 +229,13 @@ I want to develop a consistent daily routine.
 10. During evening reviews, connect my daily activities to my long-term goals.
 
 **Important:** My goals can change. Do not treat this document as a rigid plan. Help me adapt it as my circumstances evolve.
+
+## Added by Linda
+
+- [ ] Plan a plov outing with friends
+- [ ] Organize monthly finances
+- [ ] Buy a Cobalt car after receiving the driver’s licence
+
+## Driving Licence
+
+- [ ] Study for driver's licence will be finished on 15.01.2027, and plan to pass the exam by the end of January 2027.

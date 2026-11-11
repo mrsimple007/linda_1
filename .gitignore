@@ -4,3 +4,24 @@ __pycache__/
 *.pyc
 *.bak
 linda.db
+
+# virtual environments
+.venv/
+.venv*/
+venv/
+
+# python
+__pycache__/
+*.pyc
+
+# secrets and personal data (do not push)
+.env
+linda.db
+
+# patch backups, macOS
+*.bak
+*.bak-*
+.DS_Store
+.venv/
+.venv*/
+venv/

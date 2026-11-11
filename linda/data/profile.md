@@ -213,3 +213,7 @@ Linda should help me connect these goals, maintain continuity, and make measurab
 ---
 
 *This document is a living profile. Update it when important long-term goals, interests, skills, or circumstances change. Never assume that an old goal is still active without checking when relevant.*
+
+## Family
+
+- My brother is Yusuf and Nursulton.
