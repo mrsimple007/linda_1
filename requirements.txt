@@ -16,3 +16,16 @@ requests
 pyobjc-framework-EventKit
 httpx                  # only for tests/test_server.pyopenai
 openai
+google-api-python-client
+google-auth
+requests
+pyyaml
+google-api-python-client
+google-auth
+requests
+pyyaml
+
+google-api-python-client
+google-auth
+requests
+pyyaml

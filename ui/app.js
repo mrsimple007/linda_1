@@ -8,6 +8,10 @@ const STOP = /^[^\p{L}\p{N}]*(stop|be quiet|shut up|стоп|хватит|зам
 const GLYPH = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
 const COLORS = { notes: "#8fa8ff", papers: "#ffa98a", projects: "#7affc4", journal: "#d9a8ff" };
 
+// finished items stay visible, struck through (tasks, today's list, memory lists)
+document.head.append(Object.assign(document.createElement("style"), { textContent:
+  "li.done{opacity:.55}li.done,li.done *{text-decoration:line-through;text-decoration-thickness:1.5px}" }));
+
 let ws, cfg = { window: 20, wake_pattern: "(linda)" }, lang = localStorage.getItem("lang") || "en";
 let wakeRe = null, windowUntil = 0, session = null, speaking = false, queue = [], current = null, tFinal = 0, recentSpeech = [];
 let rec = null, recWanted = false, micPaused = false, chess = { active: false, sel: null };
@@ -132,8 +136,16 @@ async function setupBarge() {
 // ---- panels
 function renderPanels(p) {
   session = p.session;
-  fill("calendar", p.calendar, e => { const li = el("li"); li.append(el("span", e.time || "today", "t"), document.createTextNode(e.title)); return li; }, "Nothing planned");
-  fill("tasks", p.tasks, t => { const li = el("li", t.title); if (t.due) li.append(el("small", t.due)); return li; }, "No open tasks");
+  fill("calendar", p.calendar, e => {
+    const li = el("li", undefined, e.done ? "done" : "");
+    li.append(el("span", e.done ? "done" : (e.time || "today"), "t"), document.createTextNode(e.title));
+    return li;
+  }, "Nothing planned");
+  fill("tasks", p.tasks, t => {
+    const li = el("li", t.title, t.done ? "done" : "");
+    if (t.due) li.append(el("small", t.due));
+    return li;
+  }, "No open tasks");
   fill("birthdays", p.birthdays, b => { const li = el("li", b.name); li.append(el("small", b.n === 0 ? "today" : b.n === 1 ? "tomorrow" : "in " + b.n + " days")); return li; }, "None in the next 30 days");
   fill("plan", p.plan, i => { const li = el("li", `${i.title || "Free practice"} · ${i.minutes} min`); const why = [].concat(i.why || []).join(" · "); if (why) li.append(el("small", why)); return li; }, "No plan yet");
   const pr = $("practice"); pr.replaceChildren();

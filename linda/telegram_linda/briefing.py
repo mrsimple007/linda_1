@@ -19,9 +19,10 @@ import time
 import xml.etree.ElementTree as ET
 
 import requests
+import os
 
-from . import tools
-from .i18n import fmt_date
+from .. import tools
+from ..i18n import fmt_date
 from .telegram import esc
 
 PLANS_WINDOW = 4 * 3600          # after the morning message, a plain reply is read as "today's plans" first
@@ -284,7 +285,7 @@ def muted(agent, text=""):
     with _LOCK:
         real, lang = agent.speaker, getattr(agent, "lang", "en")
         try:
-            from .brain import reply_lang
+            from ..brain import reply_lang
             agent.lang = reply_lang(text, agent.cfg.get("default_language", "en")) if text else agent.cfg.get("default_language", "en")
         except Exception:
             pass
@@ -678,13 +679,28 @@ def _command(agent, tg, cmd, rest):
 
 def on_telegram_text(agent, tg, text):
     t = text.strip()
+    fc = getattr(agent, "finance_chat", None)
+    if fc:
+        reply = fc.handle(t)                      # None means "not a finance message"
+        if reply is not None:
+            return tg.send_styled("Finance", icon="💰", intro=reply)
     m = re.match(r"^/(\w+)(?:@\w+)?\s*(.*)$", t, re.S)
     if m:
-        return _command(agent, tg, m.group(1).lower(), m.group(2).strip())
+        cmd, rest = m.group(1).lower(), m.group(2).strip()
+        return _command(agent, tg, cmd, rest)
     return _free_text(agent, tg, t)
 
-
 def start_telegram(agent, tg):
-    """Call once at startup: sets the bot's "/" menu and starts reading your messages."""
+    if os.getenv("LINDA_TELEGRAM_STANDALONE") == "1" and not getattr(agent, "is_bot", False):
+        print("[telegram] слушает отдельный бот, сервер не слушает")
+        return
+    try:
+        from linda.telegram_linda.finance import FinanceService
+        from .finance_chat import FinanceChat
+        agent.finance = FinanceService.from_config(
+            chooser=lambda system, user: llm_text(agent, system, user, temp=0))
+        agent.finance_chat = FinanceChat(agent.finance)
+    except Exception as e:
+        print("[finance] disabled:", repr(e)[:150])
     tg.set_commands(COMMANDS)
     tg.listen(lambda text: on_telegram_text(agent, tg, text))

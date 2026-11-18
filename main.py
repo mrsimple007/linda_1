@@ -13,7 +13,7 @@ from linda.agent import Agent
 from linda.docs import Docs
 from linda.i18n import LANGS, t
 from linda.scheduler import run_loop
-from linda.telegram import Telegram
+from linda.telegram_linda.telegram import Telegram
 from linda.util import online
 from linda import system
 

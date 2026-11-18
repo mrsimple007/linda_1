@@ -17,13 +17,21 @@ Everything you write is read aloud: 1-3 short sentences, no markdown, lists, emo
 You have tools. When the user wants something DONE, call the matching tool (several in one turn if needed); before a tool call say a very short, varied lead-in (2-6 words). Answer general knowledge, translations, maths and advice yourself. Anything needing current web information (news, weather, sports, prices, "latest") uses web_answer.
 Memory: the index below lists what is stored. Before answering anything about the user's own data, and before saving, changing or deleting anything, read it (stored data may already be attached below; otherwise call recall for that store) and decide whether to create, update or skip. Never claim something is missing without checking. State stored facts exactly as stored; do not add details that are not in the data. After tools run, answer in your own words.
 Use the music tool only when the user explicitly asks for music. If a required detail is missing, ask ONE short question.
+"When the user says they are working on or will work on something, that is a plan, not a result: check the open tasks. "
+"If one matches, say it is already on the list and do nothing else; if none matches, call task_add with due today. "
+"Use log_progress only for work that is already finished, and reuse an existing project name instead of inventing one.\n"
+"Projects: reuse an ongoing project whenever the work belongs to it, even if the user words it differently; open a new project only for genuinely new work. "
+
 Now: {now}.{notes}"""
 NEWS_ASK = re.compile(r"\b(?:news|headlines)\b|новост|yangilik", re.I)
 BDAY_ASK = re.compile(r"\bbirthdays?\b.*\blist\b|\blist\b.*\bbirthdays?\b|список.*дн\w+ рожд|дни рождения.*список", re.I)
 SENT = re.compile(r"(?<=[.!?…])\s+|\n+")
-WEB = re.compile(r"\b(news|weather|latest|forecast|score|price|rate)\b|новост|погод|курс\b|yangilik|ob-?havo", re.I)
+WEB = re.compile(r"\b(news|weather|latest|forecast|price|exchange rate)\b|\bscore of\b|\b(?:game|match|final) score\b|"
+                 r"новост|погод|курс\b|yangilik|ob-?havo", re.I)
+
+
 QUICK = {"timer", "volume", "music", "mac", "open_app", "time", "battery",
-         "telegram_send", "log_progress", "remember"}
+         "telegram_send", "remember", "task_done"}
 
 # Advice, planning, wishes: slower, longer, warmer, with the full picture of the user (voice commands stay fast and short).
 THINK = re.compile(
@@ -45,7 +53,10 @@ THINK_RULES = (
     "add 2-3 specific gift ideas. When he asks to send it, call telegram_send with the whole text (the Reply tag governs "
     "your spoken answer, not the language of the message you send), then tell him in 2-3 sentences what you sent, "
     "including the gift ideas.\n"
-    "- Be honest and useful: give your own view and a reason, not flattery.")
+    "- Be honest and useful: give your own view and a reason, not flattery."
+    "- If you cannot answer, say so and suggest a way to find out. Do not make up facts or advice.\n"
+    "When the user says they finished or completed a task (speech-to-text may turn 'completed' into 'continue'), "
+"find it in the open tasks above and call task_done with its id: ONE call. Do not call task_add or log_progress for it. ")
 
 LANG_NAME = {"en": "English", "ru": "Russian", "uz": "Uzbek"}
 UZ_MARK = re.compile(r"\b(qachon|nima|mening|menga|bugun|kecha|qanday|iltimos|bormi|tug['‘’ʻ`]?ilgan|yo['‘’ʻ`]q)\b", re.I)
@@ -428,7 +439,9 @@ class Brain:
         contents = [types.Content(role=r, parts=[types.Part.from_text(text=m)]) for r, m in self.history]
         contents.append(types.Content(role="user", parts=[types.Part.from_text(text=f"{text}\n\n[Reply in {L}.]")]))
         buf, calls, self._spoke = "", [], False
-        for chunk in self.gemini.stream_tools(contents, self._system(), self.decls,
+        ctx = tools.prefetch(self.agent, text, think=bool(THINK.search(text)))
+        system = self._system() + (("\n\nStored data already searched for this message. Answer from it:\n" + ctx) if ctx else "")
+        for chunk in self.gemini.stream_tools(contents, system, self.decls,
                                               self.cfg["gemini"].get("brain_model") or None):
             if ev.is_set():
                 return

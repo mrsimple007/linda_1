@@ -25,3 +25,18 @@ linda.db
 .venv/
 .venv*/
 venv/
+sigma-celerity-*.json
+
+sql codes/.venv*/
+__pycache__/
+*.pyc
+.DS_Store
+.env
+*.db
+logs/
+linda/data/
+sql codes/
+*.xlsx
+*service-account*.json
+sigma-celerity-*.json
+config.yaml

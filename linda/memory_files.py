@@ -131,7 +131,7 @@ def complete(file, query):
                 lines[j] = "- **Status:** implemented"
                 break
     elif "[ ]" in lines[i]:
-        lines[i] = lines[i].replace("[ ]", "[x]", 1)
+        lines[i] = re.sub(r"\[ \]\s*(.+?)\s*$", r"[x] ~~\1~~", lines[i], count=1)
     elif not re.search(r"\[[xX]\]", lines[i]):
         lines[i] = re.sub(r"^(\s*[-*+]\s+)", r"\1[x] ", lines[i])
     _write(file, lines)
@@ -202,7 +202,8 @@ def context(max_chars=3500):
         if file == "ideas":
             body = [l[4:].strip() for l in lines if l.startswith("### ")]
         else:
-            body = [re.sub(r"^\s*[-*+]\s+", "", l).strip() for l in lines if re.match(r"\s*[-*+]\s+", l)]
+            body = [re.sub(r"^\s*[-*+]\s+", "", l).strip() for l in lines
+                    if re.match(r"\s*[-*+]\s+", l) and not re.search(r"\[[xX]\]", l)]
         if body:
             parts.append(label + ":\n" + "\n".join("- " + b for b in body))
     return "\n\n".join(parts)[:max_chars]

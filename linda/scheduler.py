@@ -27,7 +27,7 @@ def due_jobs(jobs, store, now):
 def _run(agent, name):
     """True = done (or nothing to retry), False = failed and worth retrying."""
     if name == "telegram_morning":
-        from . import briefing
+        from .telegram_linda import briefing
         tg = getattr(agent, "tg", None)
         if tg is None:
             print("[scheduler] telegram_morning: Telegram is not configured")

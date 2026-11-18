@@ -223,9 +223,8 @@ class TaskMixin:
             self.k("task_item", title=title, due=f", {fmt_date(datetime.date.fromisoformat(due), self.lang)}" if due else "")
 
     def do_task_done(self, it, text):
-        title = self.store.complete_task(it.text or it.name or text)
-        self.k("task_done", title=title) if title else self.k("task_notfound")
-
+        from . import tools
+        tools.finish_task(self, None, it.text or it.name or text)
 
 class DocsMixin:
     """Journal + semantic search over notes / papers / projects / journal."""

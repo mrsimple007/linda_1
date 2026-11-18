@@ -65,21 +65,27 @@ TABLE = [
     ("log_driving", "Save a driving test result.",
      {"score": (I, "points or correct answers"), "total": (I, "maximum"), "kind": (S, "theory, practical or mock_test"),
       "notes": (S, "notes")}, ["score", "total"], {"kind": "topic", "notes": "text"}),
-    ("task_add", "Add a to-do item. If the user says today or tomorrow, put that real date in due.",
+    ("task_add", "Add a to-do item. If the user says today or tomorrow, put that real date in due. "
+     "Also use it when the user says they NEED or WANT to do something later (e.g. practice in the evening): put a time if said. "
+     "Not for work already finished, and not if a matching open task exists. "
+     "Set project to the ongoing project it belongs to, by meaning, if any.",
      {"title": (S, "the task"),
       "due": (S, "due date YYYY-MM-DD if said"),
-      "time": (S, "time of day HH:MM if said"),
-      "project": (S, "project if said")}, ["title"], {}),
+      "time": (S, "time of day HH:MM if said (evening = 20:00)"),
+      "project": (S, "exact name of the ongoing project this belongs to, if any")}, ["title"], {}),
     ("task_list", "List the open tasks.", {}, [], {}),
-    ("task_done", "Mark a task as done. Pick it from the open tasks list by meaning and pass its id.",
-     {"id": (I, "id from the open tasks list"), "text": (S, "words from the task, only if you have no id")}, [], {}),
+    ("task_done", "Mark an open task as done. Use it whenever the user says they finished, completed, prepared or already did "
+     "something that matches an open task by meaning (speech-to-text may distort words). Pass the id from the open tasks list. "
+     "Also pass the ongoing project it belongs to, by meaning, if there is one.",
+     {"id": (I, "id from the open tasks list"), "text": (S, "words from the task, only if you have no id"),
+      "project": (S, "exact name of the ongoing project this task belongs to, if any")}, [], {}),
     ("song_add", "Add a song or piece to the repertoire. FIRST work out the proper title and the composer or artist from your own knowledge, then save with full details. Never save a bare guess.",
      {"name": (S, "proper title, e.g. 'Game of Thrones (Main Theme)'"), "composer": (S, "composer or artist, e.g. 'Ramin Djawadi'"),
       "instrument": (S, "piano or guitar"), "status": (S, "learning, polishing or repertoire"),
       "notes": (S, "one short line (difficulty, key, arrangement) if known")}, ["name"], {}),
     ("music", "Control Spotify. action=play with query plays that specific song or artist (e.g. query 'The Nights Avicii'); action=play without query resumes; also pause, next, previous. ONLY when the user explicitly asks for music.",
      {"action": (S, "play, pause, next or previous"), "query": (S, "song and artist to play")}, ["action"], {"query": "text"}),
-    ("journal_add", "Personal diary only: feelings, thoughts, reflections. NOT for work done or things improved (use log_progress).",
+    ("journal_add", "Personal diary only: feelings, thoughts, reflections. NOT for work done or things improved (use task_done or log_progress).",
      {"text": (S, "the entry")}, ["text"], {}),
     ("search_notes", "Search the user's OWN notes, papers, project docs and journal.",
      {"query": (S, "the question"), "source": (S, "notes, papers, projects or journal if said")}, ["query"],
@@ -94,13 +100,25 @@ TABLE = [
     ("complete_goal", "Mark a goal in goals.md as done.", {"text": (S, "a few words from the goal")}, ["text"], {}),
     ("remove_note", "Delete an outdated or wrong line from profile, goals or ideas.",
      {"file": (S, "profile, goals or ideas"), "text": (S, "words from the line to delete")}, ["file", "text"], {}),
-    ("log_progress", "Record in the permanent project log what the user worked on, finished or improved (a project, a feature of Linda, studies). Write one clear full sentence in English: what was done and what is now possible. Use whenever the user says they worked on, finished or improved something. If it finishes an open task, also call task_done.",
-     {"project": (S, "project name, e.g. Linda, recsys, driving licence"),
-      "text": (S, "what was done and what is now possible")}, ["project", "text"], {}),
-    ("practice_log", "Log a practice session the user did. date is the real YYYY-MM-DD if it was not today ('yesterday' = yesterday's actual date).",
+    ("log_progress", "Record finished work that matches NO open task (past tense). Compare the update with the open tasks first: "
+     "if one matches by meaning, use task_done instead. Then look at 'ongoing projects' in the index: if the work belongs to one "
+     "of them by meaning (e.g. pizza data collection belongs to the Data Collection project), use that exact name. "
+     "Set new_project=true ONLY for a clearly different project that is not in the list. One clear sentence in English.",
+     {"project": (S, "exact name of an ongoing project, or the new project's name"),
+      "text": (S, "what was done and what is now possible"),
+      "new_project": (B, "true only if this is a new project not in the ongoing list"),
+      "no_matching_task": (B, "true only after you checked the open tasks and none matches")}, ["project", "text"], {}),
+    ("practice_log", "Log a practice session the user ALREADY DID (past tense: 'I practiced', 'I played'). "
+     "If the user says they need, want or plan to practice, that is NOT a session: use task_add instead. "
+     "date is the real YYYY-MM-DD if it was not today ('yesterday' = yesterday's actual date).",
      {"minutes": (I, "duration in minutes, exactly as said"), "name": (S, "song, if said"), "instrument": (S, "piano or guitar"),
-      "date": (S, "YYYY-MM-DD if not today"), "rating": (I, "self-rating 1-5 if said"), "focus": (S, "what was practiced")},
-     ["minutes"], {}),
+      "date": (S, "YYYY-MM-DD if not today"), "rating": (I, "self-rating 1-5 if said"), "focus": (S, "what was practiced"),
+      "already_done": (B, "true only if the user said the practice already happened")},
+     ["minutes", "already_done"], {}),
+    ("practice_delete", "Remove wrongly logged practice sessions. Use when the user says a session was logged by mistake or did not happen. "
+     "Removes the most recent ones (count), or the most recent ones of one date.",
+     {"count": (I, "how many of the latest sessions to remove, default 1"),
+      "date": (S, "YYYY-MM-DD, only if the user names a day")}, [], {}),
     ("read_note", "Read out the user's saved profile, goals or ideas, or answer questions about them ('what are my goals').",
      {"file": (S, "profile, goals or ideas")}, ["file"], {}),
     ("birthday_lookup", "Tell when a specific person's birthday is. 'my birthday' means the user's own.",
@@ -108,8 +126,8 @@ TABLE = [
 ]
 # Tools that WRITE data run one after another in the order requested; the rest can run in parallel.
 SEQUENTIAL = {"add_birthday", "delete_birthday", "calendar_add", "calendar_undo", "remember", "song_add", "practice_log",
-              "log_driving", "task_add", "task_done", "journal_add", "timer", "chess", "quiz", "mac", "volume", "music",
-              "save_note", "complete_goal", "remove_note", "log_progress"}
+              "practice_delete", "log_driving", "task_add", "task_done", "journal_add", "timer", "chess", "quiz", "mac",
+              "volume", "music", "save_note", "complete_goal", "remove_note", "log_progress"}
 SEQUENTIAL.update({"process_download", "clipboard", "telegram_send", "birthday_greeting"})
 LANG_WORDS = {"english": "en", "russian": "ru", "uzbek": "uz"}
 SPEC = {t[0]: t for t in TABLE}
@@ -130,11 +148,54 @@ def declarations():
 
 # ===================== write handlers =====================
 
+def open_tasks_text(agent, limit=40):
+    """Open tasks with ids, today's first, so the model can match an update to a task by meaning."""
+    today = str(datetime.date.today())
+    rows = sorted(agent.store.open_tasks(), key=lambda r: (str(r[2] or "") != today, str(r[2] or "9999")))
+    return "; ".join(f"id {r[0]}: {r[1]}" + (f" (due {r[2]})" if r[2] else "") for r in rows[:limit]) or "none"
+
+
+def _can_retry(agent):
+    """True inside the provider loop (speaker is a Capture): the model reads the tool result and may call again.
+    On the Gemini path nothing is read back, so errors must not be spoken."""
+    return type(agent.speaker).__name__ == "Capture"
+
+
+def _resolve_project(agent, project, new=False):
+    """-> (path, error). Existing project (spelling variants allowed); a new file only when the model says it is new."""
+    pdir = agent.data_dir / "projects"
+    names = {p.stem: p for p in pdir.glob("*.md")} if pdir.exists() else {}
+    slug = re.sub(r"[^a-z0-9]+", "-", str(project).lower()).strip("-") or "general"
+    if slug in names:
+        return names[slug], None
+    close = difflib.get_close_matches(slug, list(names), n=1, cutoff=0.85)
+    if close:
+        return names[close[0]], None
+    if new or not _can_retry(agent):
+        return pdir / f"{slug}.md", None
+    return None, (f"error: there is no project called '{project}'. Existing projects: {', '.join(names) or 'none'}. "
+                  "If this work belongs to one of them, call log_progress again with that exact project. "
+                  "Only if it is clearly a different, new project, call again with new_project=true.")
+
+
 def _log_progress(agent, a, text):
     project, entry = str(a.get("project") or "General").strip(), str(a.get("text") or "").strip()
     if not entry:
         return agent.k("error")
-    p = agent.data_dir / "projects" / (re.sub(r"[^a-z0-9]+", "-", project.lower()).strip("-") + ".md")
+    if not a.get("no_matching_task") and _can_retry(agent):
+        try:
+            done = _done_on(agent, [datetime.date.today()])
+        except Exception:
+            done = []
+        return agent.say(
+            "error: not logged yet. Compare the user's update with the open tasks: " + open_tasks_text(agent) +
+            ". Finished today: " + ("; ".join(done) or "none") + ". "
+            "If it matches an open task by meaning, call task_done with that id and nothing else. "
+            "If it matches a task already finished today, do not call anything: tell the user it is already done. "
+            "Only if nothing matches, call log_progress again with no_matching_task=true.")
+    p, err = _resolve_project(agent, project, bool(a.get("new_project")))
+    if err:
+        return agent.say(err)
     p.parent.mkdir(parents=True, exist_ok=True)
     if not p.exists():
         p.write_text(f"# {project}: progress log\n\n", encoding="utf-8")
@@ -235,7 +296,109 @@ def _same(a, b):
     return bool(ka and kb) and len(ka & kb) / min(len(ka), len(kb)) >= 0.75
 
 
+def _dmy(d):
+    try:
+        return datetime.date.fromisoformat(str(d)[:10]).strftime("%d.%m.%Y")
+    except ValueError:
+        return "no date"
+
+
+def sync_tasks_md(agent):
+    """data/tasks.md: 'Open tasks - <due date>' groups, then 'Done - <date done>' groups with strikethrough."""
+    try:
+        tt = task_times(agent.cfg)
+        lines = ["# Tasks", ""]
+        open_by = {}
+        for r in agent.store.open_tasks():
+            open_by.setdefault(str(r[2] or "")[:10], []).append(r[1])
+        for due in sorted(open_by, key=lambda d: d or "9999"):
+            lines += [f"## Open tasks - {_dmy(due) if due else 'no date'}", ""]
+            for t in open_by[due]:
+                at = tt.get(_norm(t), "")
+                lines.append(f"- [ ] {t}" + (f" ({at})" if at else ""))
+            lines.append("")
+        con = _tt_db(agent.cfg)
+        try:
+            done = con.execute("select title, done_ts from tasks where status='done' "
+                               "order by done_ts desc limit 150").fetchall()
+        finally:
+            con.close()
+        done_by = {}
+        for title, ts in done:
+            try:
+                day = str(datetime.date.fromtimestamp(float(ts)))
+            except (TypeError, ValueError):
+                day = ""
+            done_by.setdefault(day, []).append(title)
+        for day in sorted(done_by, reverse=True):
+            lines += [f"## Done - {_dmy(day) if day else 'no date'}", ""]
+            lines += [f"- [x] ~~{t.strip().rstrip('.!')}~~" for t in done_by[day]] + [""]
+        (agent.data_dir / "tasks.md").write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    except Exception as e:
+        print("[tasks.md]", repr(e)[:150])
+
+
+def _task_project(agent, title):
+    con = _tt_db(agent.cfg)
+    try:
+        r = con.execute("select project from tasks where title like ? limit 1", (title + "%",)).fetchone()
+        return (r[0] or "").strip() if r else ""
+    except sqlite3.OperationalError:          # no 'project' column
+        return ""
+    finally:
+        con.close()
+
+
+def _strike_in_project(agent, project, title):
+    """Same file and line format as log_progress, so project_context() still reads it."""
+    p, _ = _resolve_project(agent, project, new=True)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if not p.exists():
+        p.write_text(f"# {project}: progress log\n\n", encoding="utf-8")
+    line = f"- {datetime.date.today()} · ~~{title}~~\n"
+    if line not in p.read_text(encoding="utf-8", errors="ignore"):
+        with p.open("a", encoding="utf-8") as f:
+            f.write(line)
+
+
+def finish_task(agent, tid=None, words="", project=""):
+    """The one place where a task becomes done: DB + tasks.md + struck-through line in its project log."""
+    title, own = None, ""
+    if tid not in (None, ""):
+        con = _tt_db(agent.cfg)
+        try:
+            n = int(float(tid))
+            try:
+                row = con.execute("select title, status, project from tasks where id=?", (n,)).fetchone()
+            except sqlite3.OperationalError:                  # no project column
+                r = con.execute("select title, status from tasks where id=?", (n,)).fetchone()
+                row = (r + ("",)) if r else None
+            if row and row[1] == "open":
+                con.execute("update tasks set status='done', done_ts=? where id=?", (time.time(), n))
+                con.commit()
+                title, own = row[0], (row[2] or "")
+            elif row:
+                return agent.say(f"You already finished that one: {row[0].rstrip('.!')}.")
+        finally:
+            con.close()
+    if title is None and words:
+        title = agent.store.complete_task(words)
+    if not title:
+        return agent.k("task_notfound")
+    title = title.strip().rstrip(".!")
+    project = (own or project or _task_project(agent, title)).strip()
+    sync_tasks_md(agent)
+    if project:
+        _strike_in_project(agent, project, title)
+    agent.k("task_done", title=title)
+
+
+def _task_done(agent, a, text):
+    finish_task(agent, a.get("id"), str(a.get("text") or "").strip(), str(a.get("project") or ""))
+
+
 def add_task_once(agent, title, due=None, project="", at=""):
+    title = title.strip().rstrip(".!")
     new = _norm(title)
     for r in agent.store.open_tasks():
         old = _norm(r[1])
@@ -251,6 +414,7 @@ def add_task_once(agent, title, due=None, project="", at=""):
             con.commit()
         finally:
             con.close()
+    sync_tasks_md(agent)
     agent.k("task_saved", title=title)
     return True
 
@@ -340,6 +504,14 @@ def _practice_log(agent, a, text):
         minutes = 0
     if minutes <= 0:
         return agent.k("need_minutes")
+    if not a.get("already_done"):
+        if _can_retry(agent):
+            return agent.say("error: this is a plan, not a finished session, so it is NOT logged. If no matching task exists, "
+                             "call task_add (title like 'Practice <song> on piano', due today, time if said). Open tasks: "
+                             + open_tasks_text(agent))
+        return agent.say({"en": "That sounds like a plan, so I didn't log it. Tell me when you've played.",
+                          "ru": "Это план, поэтому я не записала. Скажи, когда сыграешь.",
+                          "uz": "Bu reja, shuning uchun yozmadim. Chalib bo'lgach ayting."}[agent.lang])
     if minutes > 480:
         return agent.say(f"That is {minutes} minutes. How many minutes did you mean?")
     name, instr = str(a.get("name") or ""), str(a.get("instrument") or "").lower()
@@ -348,7 +520,6 @@ def _practice_log(agent, a, text):
         r = int(float(a.get("rating") or 0))
     except (TypeError, ValueError):
         r = 0
-    # the `day` column is what every summary reads, so write it directly (the old backdating changed `ts` only)
     agent.store.log_practice(minutes, song.id if song else None, song.instrument if song else instr,
                              str(a.get("focus") or ""), r if 1 <= r <= 5 else None, day=_resolve_day(a.get("date")))
     week = agent.store.practice_summary(7)["total_minutes"]
@@ -358,22 +529,35 @@ def _practice_log(agent, a, text):
         agent.k("practice_logged", minutes=minutes, week=week)
 
 
-def _task_done(agent, a, text):
-    tid, words, title = a.get("id"), str(a.get("text") or "").strip(), None
-    if tid not in (None, ""):
-        con = _tt_db(agent.cfg)
-        try:
-            n = int(float(tid))
-            row = con.execute("select title from tasks where id=? and status='open'", (n,)).fetchone()
-            if row:
-                con.execute("update tasks set status='done', done_ts=? where id=?", (time.time(), n))
-                con.commit()
-                title = row[0]
-        finally:
-            con.close()
-    elif words:
-        title = agent.store.complete_task(words)
-    agent.k("task_done", title=title) if title else agent.k("task_notfound")
+def _practice_delete(agent, a, text):
+    try:
+        n = max(1, min(int(float(a.get("count") or 1)), 20))
+    except (TypeError, ValueError):
+        n = 1
+    day = _resolve_day(a.get("date"))
+    con = _tt_db(agent.cfg)
+    try:
+        if day:
+            rows = con.execute("select rowid, minutes from practice_logs where day=? order by rowid desc limit ?",
+                               (day, n)).fetchall()
+        else:
+            rows = con.execute("select rowid, minutes from practice_logs order by rowid desc limit ?", (n,)).fetchall()
+        for r in rows:
+            con.execute("delete from practice_logs where rowid=?", (r[0],))
+        con.commit()
+    except sqlite3.OperationalError as e:
+        print("[practice_delete]", e)
+        return agent.k("error")
+    finally:
+        con.close()
+    if not rows:
+        return agent.say({"en": "There are no sessions to remove.", "ru": "Нечего удалять.",
+                          "uz": "O'chirish uchun mashg'ulot yo'q."}[agent.lang])
+    total = sum(int(r[1] or 0) for r in rows)
+    week = agent.store.practice_summary(7)["total_minutes"]
+    agent.say({"en": f"Removed {len(rows)} session(s), {total} minutes. {week} minutes this week now.",
+               "ru": f"Удалила сессий: {len(rows)}, {total} минут. Теперь за неделю {week} минут.",
+               "uz": f"{len(rows)} ta mashg'ulot o'chirildi, {total} daqiqa. Bu hafta {week} daqiqa."}[agent.lang])
 
 
 def _song_db(cfg):
@@ -412,28 +596,28 @@ def _song_add(agent, a, text):
     agent.k("song_saved", title=name + (f" by {comp}" if comp else ""), instrument=instr)
 
 
-# One registry of special handlers (was defined three times).
+# One registry of special handlers.
 SPECIAL = {
     "calendar_add": _calendar_add, "task_add": _task_add, "web_answer": _web_answer,
     "save_note": _mem("save_note"), "complete_goal": _mem("complete_goal"), "remove_note": _mem("remove_note"),
     "read_note": _read_note, "birthday_lookup": birthday_lookup,
-    "practice_log": _practice_log, "log_progress": _log_progress,
+    "practice_log": _practice_log, "practice_delete": _practice_delete, "log_progress": _log_progress,
     "task_done": _task_done, "song_add": _song_add,
 }
 
+
 # ---- news / birthday list: built in code from RSS and the database (see briefing.py) ----
 def _news(agent, a, text):
-    from . import briefing
+    from .telegram_linda import briefing
     briefing.run_news(agent, a, text)
 
 
 def _birthday_list(agent, a, text):
-    from . import briefing
+    from .telegram_linda import briefing
     briefing.run_birthday_list(agent, a, text)
 
 
 SPECIAL.update({"news": _news, "list_birthdays": _birthday_list})
-
 
 
 def execute(agent, name, args, text):
@@ -600,14 +784,21 @@ def _practice_on(agent, day):
             for t, i, m, f, r in rows]
 
 
-def _done_on(agent, dates):             # (verify) assumes tasks.done_ts is an epoch time, as _task_done writes it
+def _done_on(agent, dates):             # (verify) assumes tasks.done_ts is an epoch time, as finish_task writes it
     con = _tt_db(agent.cfg)
     try:
         rows = con.execute("select title, done_ts from tasks where status='done' and done_ts is not null").fetchall()
     finally:
         con.close()
     want = {str(d) for d in dates}
-    return [t for t, ts in rows if str(datetime.date.fromtimestamp(float(ts))) in want]
+    out = []
+    for t, ts in rows:
+        try:
+            if str(datetime.date.fromtimestamp(float(ts))) in want:
+                out.append(t)
+        except (TypeError, ValueError):
+            pass
+    return out
 
 
 def song_meta_count(cfg):
@@ -616,6 +807,18 @@ def song_meta_count(cfg):
         return con.execute("select id from songs").fetchall()
     finally:
         con.close()
+
+
+def projects_brief(agent, per=2):
+    """One line per existing project log: title + latest entries, so the model can tell which project work belongs to."""
+    pdir = agent.data_dir / "projects"
+    out = []
+    for p in (sorted(pdir.glob("*.md")) if pdir.exists() else []):
+        lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()
+        title = next((l.lstrip("# ").split(":")[0].strip() for l in lines if l.startswith("#")), p.stem)
+        last = [re.sub(r"^-\s*\d{4}-\d{2}-\d{2}\s*·\s*", "", l)[:90] for l in lines if l.startswith("- ")][-per:]
+        out.append(title + (f" (recent: {' | '.join(last)})" if last else ""))
+    return out
 
 
 def memory_index(agent):
@@ -629,14 +832,22 @@ def memory_index(agent):
             return 0
     jd = d / "journal"
     days = sorted(f.stem for f in jd.glob("2*.md") if re.fullmatch(r"\d{4}-\d{2}-\d{2}", f.stem)) if jd.exists() else []
+    try:
+        tl = open_tasks_text(agent, 25)
+    except Exception:
+        tl = ""
+    try:
+        pj = "; ".join(projects_brief(agent))
+    except Exception:
+        pj = ""
     return "\n".join([
         f"birthdays: {n(lambda: st.upcoming(366))} people (name, date, relation)",
-        f"tasks: {n(st.open_tasks)} open",
+        f"open tasks (id: title): {tl or 'none'}",
+        f"ongoing projects: {pj or 'none'}",
         f"songs: {n(lambda: song_meta_count(agent.cfg))}",
         "practice: sessions by date",
         f"profile / goals / ideas lines: {n(lambda: _file_lines(agent, 'profile'))} / "
         f"{n(lambda: _file_lines(agent, 'goals'))} / {n(lambda: _file_lines(agent, 'ideas'))}",
-        f"progress log: {n(lambda: list((d / 'projects').glob('*.md')))} projects",
         f"journal: {len(days)} days" + (f", latest {days[-1]}" if days else ""),
         f"quick notes ('remember that...'): {n(lambda: st.notes(200))} (recall kind='memory')",
         "For any question about one day (yesterday, today, a date) call recall(kind='day') once: it returns "
@@ -657,8 +868,8 @@ def _gather(agent, kind, q, user_text, use_text=True):
                         | {t for t in _tok(f"{q} {user_text}") if any(t in g for g in REL_GROUPS)})
         toks = set()
     dates = [] if kind == "advice" else _dates_in(f"{q} {user_text}")
-    if dates and kind in DAY_STORES:
-        kind = "day"                    # one call covers every date-bound store
+    if dates and kind in DAY_STORES - {"tasks"}:
+        kind = "day"                    # one call covers every date-bound store; kind='tasks' stays a task listing
     dayq = bool(dates) and not toks     # "what did I do yesterday": date stores only
     strict = kind == "all"              # in 'all' mode a section appears only if it matched
     both = f"{q} {user_text}"
@@ -767,7 +978,7 @@ def _gather(agent, kind, q, user_text, use_text=True):
             rows = [{"id": r[0], "title": r[1], "due": r[2], "time": tt.get(_norm(r[1]), "")} for r in st.open_tasks()]
             hit, ok = _filter(rows, toks, 25)
             return None if (strict and toks and not ok) else hit
-        if not (kind == "day" or dayq):
+        if kind == "tasks" or not (kind == "day" or dayq):
             add("open_tasks", task_rows)
         if dates:
             add("tasks_done", lambda: _done_on(agent, dates))
@@ -867,7 +1078,8 @@ def recall_data(agent, a, user_text="", budget=2000):
 def prefetch(agent, text, budget=1500, think=False):
     """Retrieval first: search every store in code before the model sees the message.
     think=True (advice, planning, wishes): goals, ideas, profile, tasks, recent work, journal, practice, songs,
-    plus the person's birthday row and profile lines when a name or relation is mentioned."""
+    plus the person's birthday row and profile lines when a name or relation is mentioned.
+    Open tasks and ongoing projects are not fetched here: memory_index() shows them on every turn."""
     if think:
         try:
             res = _dump(_gather(agent, "advice", "", text), max(budget, 2400))

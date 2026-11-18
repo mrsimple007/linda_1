@@ -35,7 +35,7 @@ _STOP = re.compile(
 def build_deps(cfg):
     from linda.docs import Docs
     from linda.store import Store
-    from linda.telegram import Telegram
+    from linda.telegram_linda.telegram import Telegram
     store = Store(cfg["db_path"])
     data_dir = pathlib.Path(cfg["data_dir"])
     n = store.import_songs(data_dir / "songs.yaml")
@@ -290,7 +290,9 @@ def snapshot(agent, cfg):
             return default
 
     tt = safe("task times", lambda: tools.task_times(cfg), {})
-
+    done_today = safe("done today", lambda: [t.strip().rstrip(".!") for t in tools._done_on(agent, [today])], [])
+    
+    
     def due_label(d):
         if d == str(today):
             return "today"
@@ -305,14 +307,16 @@ def snapshot(agent, cfg):
             out = [{"time": "" if e.all_day else e.start.strftime("%H:%M"), "title": e.title}
                    for e in agent.cal.events(start, start + datetime.timedelta(days=1))]
         out += [{"time": tt.get(tools._norm(r[1]), ""), "title": r[1]}
-                for r in store.open_tasks() if str(r[2]) == str(today)]
-        return out[:8]
+                for r in store.open_tasks() if str(r[2])[:10] == str(today)]
+        out += [{"time": "", "title": t, "done": True} for t in done_today]
+        return out[:12]
 
     def task_rows():
         rows = []
         for r in store.open_tasks()[:8]:
             due = due_label(str(r[2]) if r[2] else "")
             rows.append({"title": r[1], "due": f"{due} {tt.get(tools._norm(r[1]), '')}".strip()})
+        rows += [{"title": t, "due": "done today", "done": True} for t in done_today]
         return rows
 
     def quiz_card():
@@ -565,7 +569,7 @@ def create_app(cfg, deps, start_background=True, synth=None, recorder=None):
                 print(f"[docs] indexed {deps.docs.index()} new/changed files")
             threading.Thread(target=index_docs, daemon=True).start()
             if deps.tg:                                          # Telegram: /start /news ... and filing what you write
-                from linda import briefing
+                from linda.telegram_linda import briefing
                 briefing.start_telegram(agent, deps.tg)
             tasks.append(asyncio.create_task(refresher()))
             if local_ears:
