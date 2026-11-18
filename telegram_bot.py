@@ -8,6 +8,7 @@
 
 It builds the same objects as server.py (via server.build_deps), but with a silent speaker, then calls
 briefing.start_telegram: finance, /news, /tasks, ideas, goals and questions work as in the main app.
+Free text goes through the same Brain agent loop as voice mode (recall + tools + answer in one pass).
 """
 import argparse
 import fcntl
@@ -128,6 +129,8 @@ def run(with_scheduler=False):
     import server                                            # reuse build_deps: same Store/Docs/Gemini/Telegram
 
     cfg = load()
+    from linda import memory_files
+    memory_files.init(cfg)
     cfg["calendar"]["enabled"] = False                       # no Calendar permission prompts from a background process
     deps = server.build_deps(cfg)
     if not deps.tg:
@@ -145,13 +148,17 @@ def run(with_scheduler=False):
     agent = Agent(cfg, deps.store, speaker, deps.gemini, router, cal=None, tg=deps.tg, docs=deps.docs,
                   recorder=no_recorder)
     agent.is_bot = True                                      # tells briefing.start_telegram: "this IS the bot, listen"
+    agent.brain = None
     try:                                                     # the web Brain builds the Groq/Mistral/Gemini chain
         from linda.brain import Brain
-        Brain(cfg, agent, speaker, deps.gemini, set_lang=lambda code: None)
+        # KEEP the instance: briefing._converse() calls agent.brain._agent_loop(text) for every free-text message
+        agent.brain = Brain(cfg, agent, speaker, deps.gemini, set_lang=lambda code: None)
     except Exception as e:
-        print("[bot] Brain not started, free text will use Gemini only:", repr(e)[:120])
+        print("[bot] Brain not started, free text will use the old classifier / Gemini only:", repr(e)[:120])
     names = [getattr(p, "name", "?") for p in (getattr(agent, "providers", None) or [])]
     print("[bot] LLM chain:", names or "Gemini only")
+    print("[bot] free text ->", "Brain agent loop (one call: recall + tools + answer)" if agent.brain and names
+          else "old classifier fallback (no providers)")
 
     if with_scheduler:
         from linda.scheduler import run_loop

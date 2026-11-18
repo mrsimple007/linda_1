@@ -74,12 +74,20 @@ TABLE = [
       "time": (S, "time of day HH:MM if said (evening = 20:00)"),
       "project": (S, "exact name of the ongoing project this belongs to, if any")}, ["title"], {}),
     ("task_list", "List the open tasks.", {}, [], {}),
-    ("task_done", "Mark an open task as done. Use it whenever the user says they finished, completed, prepared or already did "
-     "something that matches an open task by meaning (speech-to-text may distort words). Pass the id from the open tasks list. "
-     "Also pass the ongoing project it belongs to, by meaning, if there is one.",
-     {"id": (I, "id from the open tasks list"), "text": (S, "words from the task, only if you have no id"),
-      "project": (S, "exact name of the ongoing project this task belongs to, if any")}, [], {}),
-    ("song_add", "Add a song or piece to the repertoire. FIRST work out the proper title and the composer or artist from your own knowledge, then save with full details. Never save a bare guess.",
+    ("task_done", "Mark open tasks as done. Use it when the user says they finished, completed or already did something that "
+     "matches an open task by meaning (speech-to-text may distort words). Ids come from the open tasks list. "
+     "ONE call can close many: ids='3,5,7'. For 'everything is done except X and Y' pass keep_ids='<ids of X and Y>': "
+     "ALL other open tasks are closed, so list only the tasks that stay open. Tasks the user says they are still "
+     "working on, still practicing or that are still open must stay open. "
+     "Also pass the ongoing project it belongs to, by meaning, if there is one (single task only).",
+     {"id": (I, "id of ONE task"),
+      "ids": (S, "comma-separated ids of the tasks to close, e.g. '3,5,7'"),
+      "keep_ids": (S, "comma-separated ids that must STAY open; every other open task is closed. Only with at least one id"),
+      "text": (S, "words from the task, only if you have no id"),
+      "note": (S, "TWO sentences, in English, of what was achieved by finishing this task (single task only). "
+                  "Written to the project's progress log."),
+      "project": (S, "exact name of the ongoing project this task belongs to, if any")}, [], {}), 
+      ("song_add", "Add a song or piece to the repertoire. FIRST work out the proper title and the composer or artist from your own knowledge, then save with full details. Never save a bare guess.",
      {"name": (S, "proper title, e.g. 'Game of Thrones (Main Theme)'"), "composer": (S, "composer or artist, e.g. 'Ramin Djawadi'"),
       "instrument": (S, "piano or guitar"), "status": (S, "learning, polishing or repertoire"),
       "notes": (S, "one short line (difficulty, key, arrangement) if known")}, ["name"], {}),
@@ -348,20 +356,37 @@ def _task_project(agent, title):
     finally:
         con.close()
 
+def _existing_project(agent, project):
+    """-> (path, display name) of an EXISTING project log, or (None, ''). Never creates a file."""
+    pdir = agent.data_dir / "projects"
+    names = {p.stem: p for p in pdir.glob("*.md")} if pdir.exists() else {}
+    slug = re.sub(r"[^a-z0-9]+", "-", str(project or "").lower()).strip("-")
+    if not slug or slug == "general":
+        return None, ""
+    p = names.get(slug)
+    if p is None:
+        close = difflib.get_close_matches(slug, list(names), n=1, cutoff=0.85)
+        p = names[close[0]] if close else None
+    if p is None:
+        return None, ""
+    first = p.read_text(encoding="utf-8", errors="ignore").splitlines()[:1]
+    title = first[0].lstrip("# ").split(":")[0].strip() if first and first[0].startswith("#") else p.stem
+    return p, title or p.stem
 
-def _strike_in_project(agent, project, title):
-    """Same file and line format as log_progress, so project_context() still reads it."""
-    p, _ = _resolve_project(agent, project, new=True)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    if not p.exists():
-        p.write_text(f"# {project}: progress log\n\n", encoding="utf-8")
-    line = f"- {datetime.date.today()} · ~~{title}~~\n"
+
+def _strike_in_project(agent, project, title, note=""):
+    """Same line format as log_progress, so project_context() still reads it. Never creates a new project file."""
+    p, _ = _existing_project(agent, project)
+    if p is None:
+        return
+    note = " ".join(str(note or "").split())[:300]
+    line = (f"- {datetime.date.today()} · {note} (~~{title}~~)\n" if note
+            else f"- {datetime.date.today()} · ~~{title}~~\n")
     if line not in p.read_text(encoding="utf-8", errors="ignore"):
         with p.open("a", encoding="utf-8") as f:
             f.write(line)
 
-
-def finish_task(agent, tid=None, words="", project=""):
+def finish_task(agent, tid=None, words="", project="", note=""):
     """The one place where a task becomes done: DB + tasks.md + struck-through line in its project log."""
     title, own = None, ""
     if tid not in (None, ""):
@@ -393,8 +418,29 @@ def finish_task(agent, tid=None, words="", project=""):
     agent.k("task_done", title=title)
 
 
+def _ids(v):
+    return [int(x) for x in re.findall(r"\d+", str(v if v is not None else ""))]
+
+
 def _task_done(agent, a, text):
-    finish_task(agent, a.get("id"), str(a.get("text") or "").strip(), str(a.get("project") or ""))
+    ids, keep = _ids(a.get("ids")), _ids(a.get("keep_ids"))
+    one = _ids(a.get("id"))
+    open_ids = [int(r[0]) for r in agent.store.open_tasks()]
+    note, project = str(a.get("note") or "").strip(), str(a.get("project") or "")
+    if keep:
+        if not set(keep) & set(open_ids):
+            return agent.say("error: none of keep_ids is an open task id. Use the ids from the open tasks list.")
+        targets = [i for i in open_ids if i not in keep]
+        if not targets:
+            return agent.say("Nothing to close: every open task is in keep_ids.")
+    else:
+        targets = [i for i in dict.fromkeys(ids + one) if i in open_ids]
+    if len(targets) > 1 or (targets and (ids or keep)):
+        single = len(targets) == 1
+        for tid in targets:
+            finish_task(agent, tid, "", project if single else "", note if single else "")
+        return
+    finish_task(agent, a.get("id"), str(a.get("text") or "").strip(), project, note)
 
 
 def add_task_once(agent, title, due=None, project="", at=""):
@@ -426,8 +472,8 @@ def _task_add(agent, a, text):
             datetime.date.fromisoformat(str(due))
         except ValueError:
             due = None
-    add_task_once(agent, str(a["title"]), due, str(a.get("project") or ""), str(a.get("time") or ""))
-
+    _, project = _existing_project(agent, a.get("project"))      # unknown / "General" -> no project
+    add_task_once(agent, str(a["title"]), due, project, str(a.get("time") or ""))
 
 def _web_answer(agent, a, text):
     q = str(a.get("query") or text)

@@ -166,6 +166,7 @@ class Brain:
         self.cfg, self.agent, self.speaker, self.gemini, self.set_lang = cfg, agent, speaker, gemini, set_lang
         self.decls = tools.declarations() if gemini else []
         self.history, self.cancel, self._spoke = [], threading.Event(), False
+        self.extra_rules = ""                       # channel-specific rules (Telegram sets this)
         self.blocked_until, self._announced = 0.0, 0.0
         if gemini is not None:
             if not getattr(gemini, "_quota_guarded", False):
@@ -344,6 +345,8 @@ class Brain:
                    "For a question about one day, use recall(kind='day') once.")
         if think:
             system += "\n\n" + THINK_RULES.format(user=self.cfg.get("user_name") or "the user")
+        if self.extra_rules:                                          # channel-specific rules (Telegram sets this)
+            system += "\n\n" + self.extra_rules
         msgs = [{"role": "system", "content": system}]
         n_hist = int(self.cfg["brain"].get("provider_history_turns", 2) or 0)       # follow-ups ("yes, add it") need the last turns
         n_hist = max(n_hist, 3) if think else n_hist
@@ -351,8 +354,9 @@ class Brain:
             msgs.append({"role": "assistant" if role == "model" else "user", "content": m})
         msgs.append({"role": "user", "content": f"{text}\n\n[Reply in {L}.]"})
 
-        for step in range(4):
-            tool_defs = defs if step < 3 else None
+        max_steps = 8 if self.extra_rules else 4                     # Telegram: tools may come one per step
+        for step in range(max_steps):
+            tool_defs = defs if step < max_steps - 1 else None
             print(f"[loop] step {step}: ~{(len(json.dumps(msgs, default=str)) + len(json.dumps(defs))) // 4} tokens in, {len(defs)} tools")
             m, used = None, ""
             for p in self.providers:
@@ -413,7 +417,7 @@ class Brain:
                 self._spoke = True
                 return True
             quick = QUICK - {"telegram_send"} if think else QUICK      # in think mode the model says what it sent
-            if last and all(n in quick for n, _ in outs if n != "recall"):
+            if not self.extra_rules and last and all(n in quick for n, _ in outs if n != "recall"):
                 ag.say(" ".join(last))
                 self._spoke = True
                 return True

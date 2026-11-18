@@ -29,8 +29,9 @@ def init(cfg):
 
 
 def _path(file):
-    return (_dir or pathlib.Path("data")) / FILES[file]
-
+    if _dir is None:
+        raise RuntimeError("memory_files.init(cfg) was not called")
+    return _dir / FILES[file]
 
 def _kind(v):
     v = str(v or "").lower()
@@ -180,6 +181,9 @@ def run_tool(name, args, docs=None):
 
 def handle(agent, name, args):
     """Run a memory tool and say the result in the user's language."""
+    global _dir
+    if getattr(agent, "data_dir", None):
+        _dir = pathlib.Path(agent.data_dir)          # always the same folder as projects/, tasks.md, journal/
     if name != "complete_goal" and _kind(args.get("file")) is None:
         return agent.k("error")
     result = run_tool(name, args, docs=getattr(agent, "docs", None))
