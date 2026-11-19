@@ -15,7 +15,7 @@ CANCELLATIONS = {
 READ_ONLY = {
     "time", "battery", "weather", "news", "morning", "list_birthdays",
     "calendar_agenda", "stats", "task_list", "search_notes", "read_note",
-    "birthday_lookup", "web_answer", "plan", "chat",
+    "birthday_lookup", "web_answer", "plan", "chat", "recall", "read_reference",
 }
 SENSITIVE = {
     "calendar_add", "calendar_undo", "clipboard", "process_download", "delete_birthday", "remove_note",
@@ -26,7 +26,7 @@ REVERSIBLE = {
     "journal_add", "log_driving", "mac", "music", "open_app", "practice_log",
     "remember", "save_note", "song_add", "task_add", "task_done", "timer",
     "tune", "analyze_playing", "chess", "quiz", "volume",
-    "telegram_send", "log_progress",
+    "telegram_send", "log_progress, ""save_reference", "read_reference",
 }
 
 
@@ -65,8 +65,7 @@ REQUEST_CUES = {
         re.compile(r"delete|remove|forget|удал|забуд|o'chir|unut", re.I),
     ),
     "remove_note": (
-        re.compile(r"note|memory|goal|idea|замет|памят|цель|иде|eslatma|xotira|maqsad", re.I),
-        re.compile(r"delete|remove|forget|удал|забуд|o'chir|unut", re.I),
+        re.compile(r"delete|remove|forget|erase|удал|забуд|o'chir|unut", re.I),
     ),
 }
 

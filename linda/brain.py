@@ -5,7 +5,7 @@ The agent loop lets the model READ the user's data (recall), act with a tool, re
 import contextvars, datetime, inspect, json, re, threading, time
 from concurrent.futures import ThreadPoolExecutor
 from google.genai import types
-from . import fastpath, memory_files, tools
+from . import fastpath, memory_files, reference, tools
 from .providers import build_providers, openai_tools, pick
 from .util import online
 from .web import CHANNEL, TURN
@@ -166,6 +166,7 @@ class Brain:
         self.cfg, self.agent, self.speaker, self.gemini, self.set_lang = cfg, agent, speaker, gemini, set_lang
         self.decls = tools.declarations() if gemini else []
         self.history, self.cancel, self._spoke = [], threading.Event(), False
+        self.tool_log = []                                   # what the model said before a tool call, for the reply card
         self.extra_rules = ""                       # channel-specific rules (Telegram sets this)
         self.blocked_until, self._announced = 0.0, 0.0
         if gemini is not None:
@@ -298,6 +299,10 @@ class Brain:
         return bool(self.providers) and online() and self._agent_loop(text)
 
     def _call(self, name, args, text):
+        if getattr(self, "read_only", False) and name in tools.SEQUENTIAL:      # a QUESTION about stored data
+            print(f"[guard] blocked {name}: this message is a read question")
+            return ("error: the user asked a QUESTION about what is stored. Do not save, add or change anything. "
+                    "Answer from the stored data above (call recall if something is missing).")
         if name == "recall":
             return tools.recall_data(self.agent, args, text)
         ag, real = self.agent, self.agent.speaker
@@ -311,7 +316,9 @@ class Brain:
         finally:
             ag.speaker = real
         res = " ".join(cap.lines) or "done"
-        print(f"[tool result] {name} -> {res[:200]}")
+        self.tool_log.append((name, args, " ".join(cap.lines)))
+        print(f"[tool result] {name} -> {res[:400]}")
+
         return res
 
     def _try(self, p, msgs, tool_defs, step, think=False):
@@ -333,6 +340,10 @@ class Brain:
         defs = list(pick(self.oa_tools, text))
         if not any(_tool_name(d) == "recall" for d in defs):          # reading must always be possible
             defs += [d for d in self.oa_tools if _tool_name(d) == "recall"]
+        if self.extra_rules or reference.looks_like_reference(text) or reference.MEM_ASK.search(text):
+            for nm in ("save_reference", "read_reference"):                 # long notes must always be possible
+                if not any(_tool_name(d) == nm for d in defs):
+                    defs += [d for d in self.oa_tools if _tool_name(d) == nm]
         think = bool(THINK.search(text))
         ctx = tools.prefetch(ag, text, think=think)
         system = self._system(full=think)

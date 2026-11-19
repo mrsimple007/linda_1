@@ -7,11 +7,11 @@ from . import tools
 CORE = {"task_add", "task_done", "timer", "plan", "stats", "practice_log", "song_add", "add_birthday",
         "delete_birthday", "save_note", "complete_goal", "remove_note", "journal_add", "log_progress",
         "time", "battery", "volume", "music", "mac", "open_app", "chess", "quiz", "remember",
-        "calendar_agenda", "calendar_add", "log_driving", "telegram_send"}
+        "calendar_agenda", "calendar_add", "log_driving", "telegram_send", "save_reference", "read_reference"}
 _T = {"string": "string", "integer": "integer", "boolean": "boolean"}
 
 BASE = {"recall", "task_add", "task_done", "add_birthday", "delete_birthday", "journal_add", "log_progress",
-        "save_note", "practice_log", "song_add", "telegram_send", "music", "remember"}
+        "save_note", "practice_log", "song_add", "telegram_send", "music", "remember", "save_reference", "read_reference"}
 EXTRA = [
     (r"timer|remind|alarm|таймер|напомни|taymer|eslat", {"timer"}),
     (r"volume|louder|quieter|mute|screenshot|lock|громк|тише|громче|ovoz", {"volume", "mac"}),
@@ -22,6 +22,7 @@ EXTRA = [
     (r"calendar|meeting|event|календар|встреч|uchrashuv", {"calendar_add", "calendar_agenda"}),
     (r"\bgoal|\bidea|цель|идея|maqsad", {"complete_goal", "remove_note"}),
     (r"\btime\b|battery|время|батаре|soat|batareya", {"time", "battery"}),
+    (r"remove|delete|forget|erase|удал|забудь|o'?chir", {"remove_note", "complete_goal", "delete_birthday"}),
 ]
 
 RECALL_KINDS = ["all", "day", "birthdays", "tasks", "songs", "practice", "profile", "goals", "ideas",
@@ -73,15 +74,13 @@ class Provider:
         return self.enabled and time.time() >= self.cool_until
 
     def cool(self, e):
-        if getattr(e, "status_code", 0) == 400:        # a malformed tool call is not a quota problem
+        if getattr(e, "status_code", 0) == 404:        # model missing: don't retry it all day
+            self.cool_until = time.time() + 86400
             return
-        wait = 30.0
-        try:
-            wait = float(e.response.headers.get("retry-after", wait))
-        except Exception:
-            pass
-        self.cool_until = time.time() + min(max(wait, 5.0), 3600.0)
+        if getattr(e, "status_code", 0) == 400:
+            return
 
+        
     def chat(self, msgs, tool_defs, effort="low", temp=0.3, timeout=None):
         kw = dict(model=self.model, messages=msgs, max_tokens=2500, temperature=temp)
         if tool_defs:

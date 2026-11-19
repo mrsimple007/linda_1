@@ -3,8 +3,7 @@ Called from tools.py:   memory_files.handle(agent, tool_name, args)   for save_n
 Also:                   init(cfg) at startup, context() = the three files as plain text for the LLM prompt.
 New entries go under their section heading (e.g. "## Yearly") or, without one, under "## Added by Linda",
 in the format the UI already shows (ideas: "### Title" + "- **Status:** raw")."""
-import datetime, pathlib, re, shutil, threading
-
+import datetime, difflib, pathlib, re, shutil, threading
 try:
     from .config import ROOT
 except ImportError:                                           # standalone use
@@ -82,6 +81,16 @@ def _title(text):
 _SW = {"the", "and", "for", "with", "that", "this", "about", "from", "line", "goal", "idea", "note",
        "delete", "remove", "done", "mark", "finished", "completed", "have", "was", "are", "you", "your"}
 
+def _close(a, b):
+    """Same word, a prefix of it, or a typo (Xolid / Xolida)."""
+    return a == b or (len(a) >= 4 and len(b) >= 4 and
+                      (a.startswith(b) or b.startswith(a) or difflib.SequenceMatcher(None, a, b).ratio() >= 0.8))
+
+
+def _score(q, words):
+    return sum(1 for w in q if any(_close(w, x) for x in words))
+
+
 def _find(lines, query, file):
     q = _words(query) - _SW
     if not q:
@@ -96,7 +105,7 @@ def _find(lines, query, file):
             block = l
         else:
             continue
-        s = len(q & _words(block))
+        s = _score(q, _words(block))
         if s > score:
             best, score = i, s
     return best if score >= min(2, len(q)) else None

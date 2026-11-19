@@ -23,6 +23,7 @@ import os
 
 from .. import tools
 from ..i18n import fmt_date
+from .. import reference
 from .telegram import esc
 
 PLANS_WINDOW = 4 * 3600          # after the morning message, a plain reply is read as "today's plans" first
@@ -34,7 +35,7 @@ TG_WORDS = re.compile(r"telegram|\bsend\b|отправ|пришли|yubor|jo'?na
 PLAN_WORDS = re.compile(r"\bplans?\b|\btasks?\b|\bto-?do\b|планы?\b|задач|rejalar|vazifa", re.I)
 COMMANDS = [("start", "Meet Linda"), ("news", "Latest headlines with links"), ("tasks", "Your open tasks"),
             ("birthdays", "All saved birthdays"), ("plans", "Add today's plans"), ("idea", "Save an idea"),
-            ("goal", "Save a goal"), ("done", "Mark a task done")]
+            ("goal", "Save a goal"), ("done", "Mark a task done"), ("notes", "Everything I remember")]
 
 S = {
     "en": {"morning": "Good morning, {user}", "hello": "Hello, {user}", "intro": "Linda is here. Write me today's plans, one per line, and I'll save "
@@ -113,6 +114,10 @@ M = {
            "today": "bugun", "tomorrow": "ertaga", "in": "{d} kundan keyin", "turns": "{a} yoshga to'ladi"},
 }
 
+# Telegram file (briefing.py): near the other regexes
+NEWS_ASK = re.compile(r"\b(?:news|headlines)\b|новост|yangilik", re.I)
+
+
 
 def _lang(agent):
     d = agent.cfg.get("default_language", "en")
@@ -124,6 +129,17 @@ def _chunk_text(c):
         return c
     t = getattr(c, "text", None)
     return t if isinstance(t, str) else ""
+
+def _save_reference_direct(agent, tg, text):
+    topic = re.sub(r"[^\w ]+", "", llm_text(agent, "Reply with ONLY a 2-4 word topic name for this note.",
+                                            text[:600], temp=0)).strip()[:40]
+    if not topic:
+        m = re.search(r"\b([\w']+ (?:course|plan|schedule|outline))\b", text, re.I)
+        topic = m.group(1) if m else " ".join(text.split()[:3])
+    with muted(agent, text):
+        _do(agent, "save_reference", {"topic": topic, "text": text}, text)
+    return tg.send_styled(S[_lang(agent)]["saved"],
+                          [("", [f"📚 <b>Reference</b>: {esc(topic)}, {len(text)} characters saved in full"])], icon="✅")
 
 
 # ============================ LLM helper ========================================
@@ -663,6 +679,9 @@ def _answer(agent, tg, text, fallback=""):
         return tg.send(ans)                                  # plain text: easy to forward
     return tg.send_styled(t["hint_title"], icon="💬", intro=ans)
 
+
+
+
 TG_RULES = (
     "Channel: a Telegram text chat, not voice. Handle EVERYTHING the message contains with tools in the SAME turn "
     "(several tool calls at once are fine). Mapping: new to-do -> task_add; finished tasks -> task_done, ONE call per "
@@ -675,9 +694,55 @@ TG_RULES = (
         " Tasks the user says they are 'still working on', 'still practicing' or 'still open' must stay open: pass them "
     "in keep_ids. If the user pastes a list of tasks and says done, close every task in that list with ids='...'. "
     "Do not reply until every task the user mentioned is handled."
-    
+        " One task_add call per separate to-do. If a message lists several things (new lines, 'and also', 'and', "
+    "different subjects such as app stats vs finance stats), make a separate task_add for each, never one combined title. "
+    " A follow-up starting with 'and also' is a NEW separate to-do: make its own task_add and never repeat a title "
+    "that is already open. Finance to-dos (stats, revenue reports) are normal tasks. "
+    "A message saying work was done (studied, improved, implemented, finished) must ALWAYS end in a tool call: "
+    "task_done if it matches an open task, otherwise log_progress. Never reply with praise alone. "
+    "Write the log text as what was done, e.g. 'Studied tickets 55, 56 and 57 for the driver's licence exam.' "
+    "Work that belongs to no ongoing project goes to project 'General'. "
+    "Never state finance numbers: finance reports are handled by code behind a PIN."
+    + reference.TG_RULES_EXTRA
+
+
     
     )
+
+
+
+DONE_WORK = re.compile(r"\b(studied|improved|finished|completed|implemented|built|fixed|worked on|practiced|"
+                       r"learned|prepared|wrote|did)\b", re.I)
+PLANNING = re.compile(r"\b(will|plan|planning|tomorrow|need to|going to|want to|have to)\b", re.I)
+NUDGE = (" You answered without recording anything. This message reports finished work: call task_done if it matches "
+         "an open task, otherwise call log_progress (no_matching_task=true, project 'General' if no project fits).")
+
+PREP_DONE = re.compile(r"\b(?:ready|prepared|finished|done)\b", re.I)
+NUDGE_PREP = (" The message also says preparation is already finished. Call log_progress for that (project it belongs to, "
+              "no_matching_task=true). Do not call task_add again.")
+
+LOG_ICONS = {"log_progress": ("🛠", "Progress"), "save_note": ("📌", "Saved"), "journal_add": ("📓", "Journal"),
+             "remember": ("📝", "Note"), "practice_log": ("🎹", "Practice"), "song_add": ("🎵", "Song"),
+             "save_reference": ("📚", "Reference")}
+
+
+def _tool_lines(brain, agent=None):
+    out = []
+    for name, args, res in brain.tool_log:
+        if name in LOG_ICONS and not res.lower().startswith("error"):
+            icon, label = LOG_ICONS[name]
+            proj = f" ({esc(args['project'])})" if name == "log_progress" and args.get("project") else ""
+            if name == "save_reference":
+                shown = f"{args.get('topic') or 'notes'}: {len(str(args.get('text') or ''))} characters saved in full"
+            else:
+                shown = str(args.get("text") or args.get("name") or res)[:300]
+            line = f"{icon} <b>{label}</b>{proj}: {esc(shown)}"
+            where = reference.where_saved(agent, name, args)
+            if where:
+                line += f"\n   📁 <code>{esc(where)}</code>"
+            out.append(line)
+    return out
+
 PLAN_HINT = ("The user was just asked for today's plans: treat what they list as new tasks due today (task_add), "
              "unless a line clearly is something else.")
 
@@ -688,6 +753,7 @@ def _converse(agent, tg, text, in_window):
     if brain is None or not getattr(brain, "providers", None):
         return False
     before = [r[1] for r in agent.store.open_tasks()]
+    brain.tool_log = []                                      # NEW
     try:
         with muted(agent, text) as mute:
             agent._produced = False
@@ -696,10 +762,28 @@ def _converse(agent, tg, text, in_window):
             else:
                 brain.cancel = threading.Event()
                 brain.extra_rules = TG_RULES + (" " + PLAN_HINT if in_window else "")
+                brain.read_only = bool(reference.MEM_ASK.search(text))       # a question can never trigger a save
                 try:
                     ok = brain._agent_loop(text)
+                    acted = any(n != "recall" for n, _, _ in brain.tool_log)
+                    if ok and DONE_WORK.search(text) and not PLANNING.search(text) and not acted:   # NEW
+                        mute.lines.clear()
+                        brain.extra_rules += NUDGE
+                        ok = brain._agent_loop(text)
+                    names = {n for n, _, _ in brain.tool_log}
+                    if ok and "task_add" in names and PREP_DONE.search(text) and not names & {"log_progress", "task_done"}:
+                        mute.lines.clear()
+                        brain.extra_rules += NUDGE_PREP
+                        ok = brain._agent_loop(text)                    
+                    
+                    
+                    elif ok and not acted and reference.looks_like_reference(text):
+                        mute.lines.clear()                                       # long dictated info, nothing saved yet
+                        brain.extra_rules += reference.NUDGE_REF
+                        ok = brain._agent_loop(text)
                 finally:
                     brain.extra_rules = ""
+                    brain.read_only = False
     except Exception as e:
         print("[telegram brain]", repr(e)[:200])
         return False
@@ -711,6 +795,7 @@ def _converse(agent, tg, text, in_window):
     # what really changed, read back from the database (not what the model claims)
     changes = [f"☑️ <b>Closed</b>: {esc(x)}" for x in before if tools._norm(x) not in a]
     changes += [f"➕ <b>Added</b>: {esc(x)}" for x in after if tools._norm(x) not in b]
+    changes += _tool_lines(brain, agent)
     brain.history = (brain.history + [("user", text), ("model", reply)])[-2 * brain.cfg["brain"]["history_turns"]:]
     if GREET_WORDS.search(text):
         tg.send(reply)                                       # plain text: easy to forward
@@ -724,11 +809,15 @@ def _free_text(agent, tg, text):
     t = S[_lang(agent)]
     in_window = time.time() < getattr(agent, "plans_until", 0)
     tg.typing()
+    if NEWS_ASK.search(text) and len(text.split()) <= 14:
+        return _news(agent, tg)
     if in_window:
         agent.plans_until = time.time() + PLANS_WINDOW
     if _converse(agent, tg, text, in_window):
         return
     # ---- fallback only: every provider is down -> the old classifier ----
+    if reference.looks_like_reference(text):          # providers down: never let the classifier cut it to 400 chars
+        return _save_reference_direct(agent, tg, text)
     if "\n" not in text and QUESTION.search(text):
         return _answer(agent, tg, text)
     items, reply = classify(agent, text, in_window)
@@ -782,6 +871,49 @@ def _news(agent, tg):
     return tg.send_styled(t["news"], news_sections(digest), icon="📰")
 
 
+def _pieces(text, n=3500):
+    out, cur = [], ""
+    for line in text.splitlines(keepends=True):
+        if cur and len(cur) + len(line) > n:
+            out.append(cur)
+            cur = ""
+        while len(line) > n:                          # one huge line
+            out.append(line[:n])
+            line = line[n:]
+        cur += line
+    return out + ([cur] if cur else [])
+
+
+def _notes_command(agent, tg, rest):
+    """/notes: every quick note in full + the reference files. /notes <name>: that file in full."""
+    if rest:
+        p = reference.find(agent, rest)
+        if p is None:
+            have = reference.names(agent) or "none yet"
+            return tg.send_styled("Notes", icon="📚", intro=f"No saved note matches '{rest}'. Saved: {have}")
+        body = p.read_text(encoding="utf-8", errors="ignore").strip()
+        head = f"<b>📚 {esc(reference.rel(agent, p))}</b>\n\n"
+        for i, chunk in enumerate(_pieces(body)):
+            tg.send_html((head if i == 0 else "") + esc(chunk))
+        return
+    try:
+        notes = [str(n) for n in (agent.store.notes(200) or [])]
+    except Exception as e:
+        print("[notes]", repr(e)[:100])
+        notes = []
+    sections = []
+    for i in range(0, len(notes), 12):
+        sections.append((f"Quick notes ({len(notes)}) · saved in linda.db" if i == 0 else "",
+                         [f"• {esc(n)}" for n in notes[i:i + 12]]))
+    files = reference.listing(agent)
+    if files:
+        sections.append(("Reference files (/notes <name> shows one in full)",
+                         [f"📚 <code>{esc(r)}</code> · {n} characters" for r, n in files]))
+    if not sections:
+        return tg.send_styled("Notes", icon="🧠", intro="Nothing saved yet.")
+    return tg.send_styled("What I remember", sections, icon="🧠")
+
+
 DIRECT = {"idea": "idea", "goal": "goal", "profile": "profile", "task": "task", "journal": "journal", "note": "note"}
 
 
@@ -800,6 +932,8 @@ def _command(agent, tg, cmd, rest):
         items = parse_plans(rest)
         return _plans_reply(agent, tg, items) if items else \
             tg.send_styled(t["hint_title"], icon="🗓", intro=t["usage"].format(ex="/plans gym; read 20 pages"))
+    if cmd in ("notes", "memory"):
+        return _notes_command(agent, tg, rest)
     if cmd == "done":
         return _done_command(agent, tg, rest) if rest else \
             tg.send_styled(t["hint_title"], icon="💬", intro="Write it after the command, like: /done exam")
@@ -812,9 +946,84 @@ def _command(agent, tg, cmd, rest):
         return _save_items(agent, tg, [item], rest)
     return tg.send_styled(t["hint_title"], icon="💬", intro=t["unknown"])
 
+import hmac
+
+FIN_ASK = re.compile(r"\b(how much|how many|what(?:'s| is| are| was)|show|total|report|summary|balance|"
+                     r"сколько|покажи|итого|qancha|ko'?rsat)\b", re.I)
+FIN_WORD = re.compile(r"\b(revenue|income|expenses?|expences?|spent|spending|earned|profit|finances?)\b|"
+                     r"доход|расход|выручк|прибыл|daromad|xarajat", re.I)
+FIN_CMDS = ("/summary", "summary", "/balance", "balance", "/finance")   # same words FinanceChat answers
+LAST_MONTH = re.compile(r"last month|previous month|прошл\w+ месяц|o'?tgan oy", re.I)
+FIN_SESSION, FIN_LOCK = 300, 900
+
+
+def _fin_pin(agent):
+    return str(agent.cfg.get("finance_pin") or os.getenv("LINDA_FINANCE_PIN") or "")
+
+
+def _fin_month(t):
+    m = re.search(r"\b(\d{4}-\d{2})\b", t)
+    if m:
+        return m.group(1)
+    if LAST_MONTH.search(t):
+        return (datetime.date.today().replace(day=1) - datetime.timedelta(days=1)).strftime("%Y-%m")
+    return None                                   # None = this month
+
+
+def _fin_answer(agent, tg, query):
+    """Numbers come from FinanceService (SQL), never from an LLM."""
+    svc = getattr(agent, "finance", None)
+    if svc is None:
+        return tg.send_styled("Finance", icon="💰", intro="Finance is not set up.")
+    try:
+        text = svc.format_summary(_fin_month(query))
+    except Exception as e:
+        print("[finance summary]", repr(e)[:150])
+        text = f"I couldn't read the finance data: {e}"
+    return tg.send_styled("Finance", icon="💰", intro=esc(text))
+
+
+def finance_gate(agent, tg, t):
+    """True when the message was handled here. Guards every finance READ (questions and /summary)."""
+    now, pin = time.time(), _fin_pin(agent)
+    fc = getattr(agent, "finance_chat", None)
+    low = t.lower()
+    pend = getattr(agent, "_fin_pending", None)
+    if pend and now < pend[1] and re.fullmatch(r"\S{3,20}", t) and not (fc and fc.matches(t)):
+        agent._fin_pending = None
+        if now < getattr(agent, "_fin_lock", 0):
+            tg.send_styled("Finance", icon="🔒", intro="Locked for a few minutes after wrong PINs.")
+        elif pin and hmac.compare_digest(t, pin):
+            agent._fin_until, agent._fin_fails = now + FIN_SESSION, 0
+            _fin_answer(agent, tg, pend[0])
+        else:
+            agent._fin_fails = getattr(agent, "_fin_fails", 0) + 1
+            if agent._fin_fails >= 3:
+                agent._fin_lock, agent._fin_fails = now + FIN_LOCK, 0
+            tg.send_styled("Finance", icon="🔒", intro="Wrong PIN.")
+        return True
+    agent._fin_pending = None
+    is_read = (low.split(" ")[0] in FIN_CMDS) or bool(FIN_ASK.search(t) and FIN_WORD.search(t))
+    if not is_read or TX_ENTRY.match(t):
+        return False
+    if not pin:
+        tg.send_styled("Finance", icon="🔒", intro="Set finance_pin in config.yaml (or LINDA_FINANCE_PIN) first.")
+    elif now < getattr(agent, "_fin_lock", 0):
+        tg.send_styled("Finance", icon="🔒", intro="Locked for a few minutes after wrong PINs.")
+    elif now < getattr(agent, "_fin_until", 0):
+        _fin_answer(agent, tg, t)
+    else:
+        agent._fin_pending = (t, now + 120)
+        tg.send_styled("Finance", icon="🔒", intro="Send your finance PIN to see this.")
+    return True
+
+
+TX_ENTRY = re.compile(r"^\s*(?:[a-zа-я]{1,10}\s*[:,]\s*)?[+\-\u2212\u2013\u2014]\s*\d", re.I)
 
 def on_telegram_text(agent, tg, text):
     t = text.strip()
+    if finance_gate(agent, tg, t):
+        return
     fc = getattr(agent, "finance_chat", None)
     if fc:
         reply = fc.handle(t)                      # None means "not a finance message"

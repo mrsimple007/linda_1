@@ -65,7 +65,7 @@ TABLE = [
     ("log_driving", "Save a driving test result.",
      {"score": (I, "points or correct answers"), "total": (I, "maximum"), "kind": (S, "theory, practical or mock_test"),
       "notes": (S, "notes")}, ["score", "total"], {"kind": "topic", "notes": "text"}),
-    ("task_add", "Add a to-do item. If the user says today or tomorrow, put that real date in due. "
+    ("task_add", "Add a to-do item. If the user says today or tomorrow, put that real date in due. ONE call per separate to-do: never merge different things into one title. "
      "Also use it when the user says they NEED or WANT to do something later (e.g. practice in the evening): put a time if said. "
      "Not for work already finished, and not if a matching open task exists. "
      "Set project to the ongoing project it belongs to, by meaning, if any.",
@@ -101,7 +101,7 @@ TABLE = [
     ("stats", "Progress and statistics.", {"topic": (S, "practice, chess, driving or tasks; empty for everything"), **TG}, [], {}),
     ("web_answer", "Answer a question that needs CURRENT information from the web (news, sports, prices, 'latest', 'today').",
      {"query": (S, "the question"), **TG}, ["query"], {}),
-    ("save_note", "Save something the user said to a personal file. file=profile: lasting facts about the user (languages, schedule, instruments, health, preferences, people). file=goals: targets and ambitions (yearly/monthly/weekly). file=ideas: random thoughts and project ideas to keep. Tasks with a due date go to task_add, diary entries to journal_add.",
+    ("save_note", "Save something the user said to a personal file. file=profile: lasting facts about the user (languages, schedule, instruments, health, preferences). NOT facts about a course or project (its students, dates): those go to save_reference. file=goals: targets and ambitions (yearly/monthly/weekly). file=ideas: random thoughts and project ideas to keep. Tasks with a due date go to task_add, diary entries to journal_add.",
      {"file": (S, "profile, goals or ideas"),
       "text": (S, "the note itself, written out in full from the conversation (replace 'it', 'that', 'about it' with what they refer to). Never the instruction like 'write this to ideas'"),
       "section": (S, "optional heading such as Yearly, Monthly, Weekly, Music")}, ["file", "text"], {}),
@@ -131,12 +131,19 @@ TABLE = [
      {"file": (S, "profile, goals or ideas")}, ["file"], {}),
     ("birthday_lookup", "Tell when a specific person's birthday is. 'my birthday' means the user's own.",
      {"name": (S, "person's name, a relation such as 'brother', or 'me'")}, [], {}),
+    ("save_reference", "Save information to a topic note (data/notes/<topic>.md): a course outline, lesson list, schedule, "
+     "resources, how-to, checklist, AND facts about an ongoing course or project (its students, start date, rules), even "
+     "short ones. Copy the user's text in full, keeping its lines. Not for finished work (log_progress).",     {"topic": (S, "the subject, used as the file name, e.g. 'IT course'"),
+      "text": (S, "the user's full text, copied exactly with its line breaks")}, ["topic", "text"], {}),
+    ("read_reference", "Read a saved reference note in full (course outline, lessons, resources). Use it when the user asks "
+     "about the content of such a note.",
+     {"topic": (S, "which note, e.g. 'IT course'; empty lists the saved notes")}, [], {}),
 ]
 # Tools that WRITE data run one after another in the order requested; the rest can run in parallel.
 SEQUENTIAL = {"add_birthday", "delete_birthday", "calendar_add", "calendar_undo", "remember", "song_add", "practice_log",
               "practice_delete", "log_driving", "task_add", "task_done", "journal_add", "timer", "chess", "quiz", "mac",
               "volume", "music", "save_note", "complete_goal", "remove_note", "log_progress"}
-SEQUENTIAL.update({"process_download", "clipboard", "telegram_send", "birthday_greeting"})
+SEQUENTIAL.update({"process_download", "clipboard", "telegram_send", "birthday_greeting", "save_reference", "read_reference"})
 LANG_WORDS = {"english": "en", "russian": "ru", "uzbek": "uz"}
 SPEC = {t[0]: t for t in TABLE}
 _TYPE = {S: types.Type.STRING, I: types.Type.INTEGER, B: types.Type.BOOLEAN}
@@ -270,9 +277,13 @@ def _calendar_add(agent, a, text):
     agent.k("cal_added", title=title, day=day_label(start.date(), agent.lang), time=start.strftime("%H:%M"))
 
 
-def _norm(s):
-    return re.sub(r"[^\w ]+", "", str(s).lower()).strip()
+_NUMW = {"1st": "first", "2nd": "second", "3rd": "third", "4th": "fourth", "5th": "fifth",
+         "6th": "sixth", "7th": "seventh", "8th": "eighth", "9th": "ninth", "10th": "tenth"}
 
+
+def _norm(s):
+    t = re.sub(r"[^\w ]+", "", str(s).lower()).strip()
+    return " ".join(_NUMW.get(w, w) for w in t.split())
 
 def _tt_db(cfg):
     p = pathlib.Path(cfg["db_path"])
@@ -340,7 +351,7 @@ def sync_tasks_md(agent):
             done_by.setdefault(day, []).append(title)
         for day in sorted(done_by, reverse=True):
             lines += [f"## Done - {_dmy(day) if day else 'no date'}", ""]
-            lines += [f"- [x] ~~{t.strip().rstrip('.!')}~~" for t in done_by[day]] + [""]
+            lines += [f"- [x] {t.strip().rstrip('.!')}" for t in done_by[day]] + [""]
         (agent.data_dir / "tasks.md").write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     except Exception as e:
         print("[tasks.md]", repr(e)[:150])
@@ -374,17 +385,35 @@ def _existing_project(agent, project):
     return p, title or p.stem
 
 
-def _strike_in_project(agent, project, title, note=""):
-    """Same line format as log_progress, so project_context() still reads it. Never creates a new project file."""
+# tools.py: replace _strike_in_project with this
+def _log_done(agent, project, title, note=""):
+    """Same line format as log_progress: '- date · what was achieved'. Never creates a project file."""
     p, _ = _existing_project(agent, project)
     if p is None:
         return
     note = " ".join(str(note or "").split())[:300]
-    line = (f"- {datetime.date.today()} · {note} (~~{title}~~)\n" if note
-            else f"- {datetime.date.today()} · ~~{title}~~\n")
+    line = f"- {datetime.date.today()} · {note or 'Completed: ' + title}\n"
     if line not in p.read_text(encoding="utf-8", errors="ignore"):
         with p.open("a", encoding="utf-8") as f:
             f.write(line)
+            
+_GENERIC = _STOP | {"prepare", "improve", "improving", "add", "study", "working", "make", "new",
+                    "start", "finish", "read", "learn", "practice"}
+
+def _belongs(agent, project, title):
+    """A project the model guessed must really fit the task: its name is in the title,
+    or at least 2 content words are shared with the project log."""
+    p, name = _existing_project(agent, project)
+    if p is None:
+        return False
+    tl = _norm(title)
+    n = _norm(name or p.stem)
+    if n and (n in tl or p.stem.replace("-", " ") in tl):
+        return True
+    words = {w for w in tl.split() if len(w) > 3 and w not in _GENERIC}
+    log = set(_norm(p.read_text(encoding="utf-8", errors="ignore")).split())
+    return len(words & log) >= 2
+
 
 def finish_task(agent, tid=None, words="", project="", note=""):
     """The one place where a task becomes done: DB + tasks.md + struck-through line in its project log."""
@@ -411,12 +440,15 @@ def finish_task(agent, tid=None, words="", project="", note=""):
     if not title:
         return agent.k("task_notfound")
     title = title.strip().rstrip(".!")
-    project = (own or project or _task_project(agent, title)).strip()
+    own = (own or _task_project(agent, title)).strip()
+    if own:
+        project = own                                   # the task's stored project always wins
+    elif not (project and _belongs(agent, project, title)):
+        project = ""                                    # model guessed a project that doesn't fit
     sync_tasks_md(agent)
     if project:
-        _strike_in_project(agent, project, title)
+        _log_done(agent, project, title, note)
     agent.k("task_done", title=title)
-
 
 def _ids(v):
     return [int(x) for x in re.findall(r"\d+", str(v if v is not None else ""))]
@@ -481,6 +513,7 @@ def _web_answer(agent, a, text):
 
 
 from . import memory_files  # noqa: E402  (kept here, as before, to avoid changing import order)
+from . import reference  # noqa: E402
 
 
 def _mem(name):
@@ -664,6 +697,7 @@ def _birthday_list(agent, a, text):
 
 
 SPECIAL.update({"news": _news, "list_birthdays": _birthday_list})
+SPECIAL.update({"save_reference": reference.save_reference, "read_reference": reference.read_reference})
 
 
 def execute(agent, name, args, text):
@@ -744,7 +778,12 @@ CAPS = re.compile(r"capabilit\w*|what can you do|what are you able|умеешь|
 CAPABILITIES = ("tasks (add, finish, list), birthdays (save, look up, greetings), calendar (add, read; asks to confirm), "
                 "practice and songs, Spotify music, Telegram messages, timers and reminders, weather and news, "
                 "chess and quizzes, profile/goals/ideas notes, diary journal, project progress log, Mac controls, "
-                "answering questions about your own saved data")
+                "answering questions about your own saved data"
+                "project progress log, Mac controls, finance (add expenses and revenue in Telegram, saved to Google Sheets; "
+"reports need a PIN), answering questions about your own saved data"
+                
+                
+                )
 NAME = re.compile(r"\b[A-ZА-ЯЁ][a-zа-яё']{2,}\b")
 NOT_NAMES = {"linda", "uzbek", "uzbekistan", "russian", "english", "family", "chess", "friends", "friend", "brother"}
 
@@ -896,6 +935,7 @@ def memory_index(agent):
         f"{n(lambda: _file_lines(agent, 'goals'))} / {n(lambda: _file_lines(agent, 'ideas'))}",
         f"journal: {len(days)} days" + (f", latest {days[-1]}" if days else ""),
         f"quick notes ('remember that...'): {n(lambda: st.notes(200))} (recall kind='memory')",
+        f"reference notes (full text via read_reference): {reference.names(agent) or 'none'}",
         "For any question about one day (yesterday, today, a date) call recall(kind='day') once: it returns "
         "journal, progress, practice and finished tasks together. For 'what can you do' or 'what did I improve on you' "
         "call recall(kind='capabilities'). For advice (what should I do, ideas, plans, wishes) "
@@ -956,7 +996,7 @@ def _gather(agent, kind, q, user_text, use_text=True):
     # 1) free text first: names found here are searched in the birthdays table (the 'brother' -> Yusuf join)
     if want("memory"):
         def memo():
-            rows, ok = _lines([str(n) for n in (st.notes(60) or [])], toks, 10)
+            rows, ok = _lines([str(n) for n in (st.notes(60) or [])], toks, 40 if kind == "memory" else 10)
             if strict and not ok:
                 return None
             hits_text.extend(rows if toks else [])
@@ -1086,9 +1126,9 @@ def _gather(agent, kind, q, user_text, use_text=True):
         add("journal", journal)
 
     if kind in ("all", "notes") and toks and agent.docs and not dayq:
-        add("notes", lambda: [{"file": pathlib.Path(h.path).name, "text": h.text[:200]}
-                              for h in agent.docs.search(qq, 6, None)
-                              if not pathlib.Path(h.path).name.startswith(("activity-", "root_birthdays"))][:3])
+        add("notes", lambda: [{"file": pathlib.Path(h.path).name, "text": h.text[:600]}
+                              for h in agent.docs.search(qq, 10, None)
+                              if not pathlib.Path(h.path).name.startswith(("activity-", "root_"))][:3])
 
     if strict and set(out) <= {"today", "asked_dates"}:
         out["found"] = "nothing matched"
@@ -1126,6 +1166,16 @@ def prefetch(agent, text, budget=1500, think=False):
     think=True (advice, planning, wishes): goals, ideas, profile, tasks, recent work, journal, practice, songs,
     plus the person's birthday row and profile lines when a name or relation is mentioned.
     Open tasks and ongoing projects are not fetched here: memory_index() shows them on every turn."""
+    if reference.MEM_ASK.search(text):               # "what did I tell you to remember": read EVERYTHING stored
+        try:
+            out = _gather(agent, "memory", "", text, use_text=False)
+            out["reference_files"] = reference.names(agent) or "none"
+            res = _dump(out, max(budget, 3000))
+        except Exception as e:
+            print("[prefetch memory]", repr(e)[:120])
+            return ""
+        print(f"[prefetch memory] {len(res)} chars: {res[:120]}")
+        return res
     if think:
         try:
             res = _dump(_gather(agent, "advice", "", text), max(budget, 2400))
