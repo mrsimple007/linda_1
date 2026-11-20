@@ -1100,11 +1100,11 @@ def _summary_card(tg, svc, sheet, s, month):
     return tg.send_styled(title, sections, footer="UZS · only entries made through Linda", icon=icon)
 
 
-def _recent_card(tg, svc, sheet, tx_type):
+def _recent_card(tg, svc, sheet, tx_type, n=5):
     icon, name = SHEETS[sheet]
-    rows = svc.recent(sheet, tx_type, 5)
+    rows = svc.recent(sheet, tx_type, n)
     kind = "income" if tx_type == "income" else "expenses"
-    title = f"{name} · latest {kind}"
+    title = f"{name} · latest {len(rows) if rows else n} {kind}"
     if not rows:
         return tg.send_styled(title, icon=icon, intro="Nothing recorded yet.")
     sign = "🟢 +" if tx_type == "income" else "🔴 −"
@@ -1115,14 +1115,36 @@ def _recent_card(tg, svc, sheet, tx_type):
     return tg.send_styled(title, [("", lines)], footer="UZS", icon=icon)
 
 FIN_PLAN = """Classify one message sent to a personal assistant. Today is {today}.
-Return ONLY JSON: {{"finance": true, "sheet": "my_finance", "view": "summary", "type": "expense", "month": null}}
+Return ONLY JSON with these keys: finance, sheet, view, type, month, limit. Fill each from THE MESSAGE, not from habit.
 - finance: true ONLY if the user asks to READ money data (totals, revenue, expenses, balance, latest purchases).
   Reporting finished work, tasks, or to-dos is false even if the word "finance" appears.
-- sheet: my_finance = personal/private, company = business/company, both = not specified.
-- view: summary = income/expenses of a month; recent = latest entries; balance = how much is left overall;
-  custom = any other money question.
-- type: income or expense (only for view=recent).
-- month: YYYY-MM for summary; null = this month."""
+- sheet: "my_finance" ONLY if the message says personal/private/my own; "company" ONLY if it says company/business;
+  otherwise "both".
+- view: "recent" = a list of individual entries (latest/last N purchases, expenses, payments, income);
+  "summary" = totals of a month; "balance" = how much is left overall; "custom" = any other money question
+  (biggest purchase, spending on one thing, a date range, a comparison).
+- type: "income" or "expense" (purchases, spending, payments = expense).
+- month: "YYYY-MM" only for view=summary when a month is named; otherwise null.
+- limit: how many entries for view=recent (the number the user asked for, default 5, at most 50).
+Examples:
+"latest 10 purchases" -> {{"finance": true, "sheet": "both", "view": "recent", "type": "expense", "month": null, "limit": 10}}
+"company revenue in October" -> {{"finance": true, "sheet": "company", "view": "summary", "type": "income", "month": "YYYY-10", "limit": 5}}
+"how much did I spend on taxi this month" -> {{"finance": true, "sheet": "both", "view": "custom", "type": "expense", "month": null, "limit": 5}}"""
+
+COUNT = re.compile(r"\b(\d{1,2})\b")
+TOTAL_Q = re.compile(r"summary|total|overall|итог|всего|jami", re.I)
+
+
+def _fin_limit(text, value=None):
+    """The number of entries asked for ('latest 10 purchases' -> 10), 5 if none, never above 50."""
+    for v in (value, *(m.group(1) for m in COUNT.finditer(text))):
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= n <= 50:
+            return n
+    return 5
 
 
 def _fin_plan(agent, text):
@@ -1135,16 +1157,21 @@ def _fin_plan(agent, text):
         month = obj.get("month")
         if not (isinstance(month, str) and re.fullmatch(r"\d{4}-\d{2}", month)):
             month = None
+        view = view if view in ("summary", "recent", "balance", "custom") else "summary"
+        if (view == "summary" and RECENT.search(LAST_MONTH.sub("", text)) and not LEFT_Q.search(text)
+                and not TOTAL_Q.search(text)):
+            view = "recent"                   # "latest/last N ..." is a list of entries, whatever the model said
         return {"finance": bool(obj["finance"]),
                 "sheets": [sheet] if sheet in SHEETS else ["my_finance", "company"],
-                "view": view if view in ("summary", "recent", "balance", "custom") else "summary",
+                "view": view,
                 "type": "income" if obj.get("type") == "income" else "expense",
-                "month": month}
+                "month": month, "limit": _fin_limit(text, obj.get("limit"))}
     # fallback: the regex logic
     view = ("balance" if LEFT_Q.search(text) else "recent" if RECENT.search(LAST_MONTH.sub("", text))
             else "summary" if REPORT_Q.search(text) else "custom")
     return {"finance": not TASKISH.search(text), "sheets": _fin_sheets(text), "view": view,
-            "type": "income" if INCOME_Q.search(text) else "expense", "month": _fin_month(text)}
+            "type": "income" if INCOME_Q.search(text) else "expense", "month": _fin_month(text),
+            "limit": _fin_limit(text)}
 
 def _fin_answer(agent, tg, query):
     svc = getattr(agent, "finance", None)
@@ -1158,7 +1185,7 @@ def _fin_answer(agent, tg, query):
                 _balance_card(tg, svc, sh)
         elif p["view"] == "recent":
             for sh in p["sheets"]:
-                _recent_card(tg, svc, sh, p["type"])
+                _recent_card(tg, svc, sh, p["type"], p.get("limit", 5))
         elif p["view"] == "summary":
             s = svc.summary(p["month"])
             for sh in p["sheets"]:
