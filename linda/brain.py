@@ -354,7 +354,12 @@ class Brain:
                        "something is missing, and never say something is missing before reading this:\n" + ctx)
         system += (f"\n\nRules: answer in {L}. State relations exactly as stored (nephew stays nephew; add no "
                    "older/younger or other details). A birthday row with match=partial is a different person with a "
-                   "similar name: say so. If several people fit (e.g. several brothers), list them all. "
+                   "similar name: say so. match=name_start is the SAME person under a short or suffixed name "
+                   "('Islom' = Islombek, 'anna' = Annam): answer about them directly, with the full stored relation. "
+                   "matched_people is the COMPLETE list of people from the birthday list that fit the question, "
+                   "with relation and birthday: when it is present, name EVERY person in it (a saved note may list "
+                   "fewer people; the list wins) and give each one's date when a date is asked. "
+                   "If several people fit (e.g. several brothers), list them all. "
                    "For a question about one day, use recall(kind='day') once.")
         if think:
             system += "\n\n" + THINK_RULES.format(user=self.cfg.get("user_name") or "the user")

@@ -19,6 +19,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parent
 LABEL = "com.linda.telegram"
@@ -138,6 +139,17 @@ def run(with_scheduler=False):
         sys.exit(1)
 
     threading.Thread(target=lambda: _safe_index(deps.docs), daemon=True).start()
+
+    def birthday_sync():                                     # birthdays.md -> linda.db, like server.py does
+        first = True
+        while True:
+            try:
+                server.sync_birthdays(cfg, force=first)
+            except Exception as e:
+                print("[bot] birthday sync failed:", repr(e)[:120])
+            first = False
+            time.sleep(60)                                   # only re-reads when the file changed
+    threading.Thread(target=birthday_sync, daemon=True).start()
     router = None
     try:
         from linda.router import Router

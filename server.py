@@ -130,7 +130,8 @@ _bday_seen = {"mtime": 0.0}
 
 
 def sync_birthdays(cfg, force=False):
-    """Put the people from data/birthdays.md into the database (only missing ones, matched by name + date).
+    """Put the people from data/birthdays.md into the database (missing ones are added, matched by name + date;
+    for people already there the relation is updated when it was edited in the file).
     Runs at startup and whenever the file changes. Reads the real columns of the `birthdays` table, so it needs
     no knowledge of store.py. Returns how many were added."""
     import sqlite3
@@ -176,6 +177,8 @@ def sync_birthdays(cfg, force=False):
         rows = con.execute(sel).fetchall()
         base = lambda n: re.sub(r"\s*\(.*\)$", "", str(n)).strip().lower()       # "Annam (other)" -> "annam"
         have = {(base(r[0]),) + tuple(str(v).lower() for v in r[1:]) for r in rows}
+        db_name = {(base(r[0]),) + tuple(str(v).lower() for v in r[1:]): r[0] for r in rows}   # key -> stored name
+        updated = 0
         used = {str(r[0]).lower() for r in rows}                                    # the name column is UNIQUE
         added = 0
         for name, mo, d, rel in people:
@@ -187,6 +190,10 @@ def sync_birthdays(cfg, force=False):
                 row[c_date] = f"{mo:02d}-{d:02d}"
                 key = (name.lower(), row[c_date])
             if key in have:
+                if c_rel and rel and key in db_name:                              # edits in the file win
+                    cur = con.execute(f"update birthdays set {c_rel}=? where {c_name}=? and coalesce({c_rel},'')<>?",
+                                      (rel, db_name[key], rel))
+                    updated += cur.rowcount
                 continue
             if name.lower() in used:                                                # same name, other person/date
                 options = ([f"{name} ({rel})"] if rel else []) + [f"{name} ({mo:02d}-{d:02d})"]
@@ -210,7 +217,7 @@ def sync_birthdays(cfg, force=False):
             added += 1
         con.commit()
         _bday_seen["mtime"] = path.stat().st_mtime
-        print(f"[birthdays] {len(people)} in birthdays.md, {added} added to the database")
+        print(f"[birthdays] {len(people)} in birthdays.md, {added} added, {updated} relations updated")
         return added
     except Exception as e:
         print("[birthdays] sync failed:", repr(e))

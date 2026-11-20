@@ -789,7 +789,7 @@ REL_GROUPS = [
     {"father", "dad", "отец", "папа", "ota", "otam"},
     {"friend", "friends", "друг", "друзья", "dost", "dostim"},
     {"aunt", "тётя", "тетя", "xola", "xolam", "amma", "ammam", "yanga", "yangam"},
-    {"grandmother", "бабушка", "buvi", "buvim"},
+    {"grandmother", "grandmothers", "бабушка", "buvi", "buvim", "buvijon", "anna", "annam", "annalar", "annalarim"},
     {"grandfather", "дедушка", "bobo", "bobom"},
 ]
 STOP = {"the", "and", "what", "when", "who", "where", "which", "how", "did", "does", "for", "you", "are", "was",
@@ -830,17 +830,36 @@ def _tok(s):
     return [w for w in re.findall(r"\w+", str(s).lower()) if len(w) > 2]
 
 
+UZ_SUFFIX = ("larimiz", "larim", "lardan", "larni", "lari", "lar", "imizni", "imiz", "ning", "imni", "imga",
+             "dan", "ni", "ga", "da", "im")
+
+
+def _stem(t):
+    """Uzbek suffixes off a word, keeping at least 4 letters: 'annalarim' -> 'anna', 'islomni' -> 'islom'."""
+    for suf in UZ_SUFFIX:
+        if t.endswith(suf) and len(t) - len(suf) >= 4:
+            return t[:-len(suf)]
+    return t
+
+
 def _expand(tokens):
     out = set(tokens)
     out |= {t[:-1] for t in tokens if len(t) > 5 and t.endswith("s")} - STOP   # "ahmadjons" -> "ahmadjon"
+    out |= {_stem(t) for t in tokens} - STOP
     for g in REL_GROUPS:
         if out & g:
             out |= g
     return out
 
 
-def _match(s, t):                       # short tokens must be whole words ("aka" must not hit "Zakaria")
-    return bool(re.search(r"\b" + re.escape(t) + r"\b", s)) if len(t) <= 4 else t in s
+def _match(s, t):
+    """3 letters: whole word ("aka" must not hit "Zakaria"). 4 letters: start of a word ("anna" -> "Annam",
+    "isla" not inside other words). Longer: anywhere ("islom" -> "Islombek")."""
+    if len(t) <= 3:
+        return bool(re.search(r"\b" + re.escape(t) + r"\b", s))
+    if len(t) == 4:
+        return bool(re.search(r"\b" + re.escape(t), s))
+    return t in s
 
 
 def _has(s, toks):
@@ -1086,6 +1105,7 @@ def _gather(agent, kind, q, user_text, use_text=True):
                 for r in hit:           # tell the model how each row matched: "Yusuf" must not silently become "Yusufbek"
                     words = set(re.findall(r"\w+", r["name"].lower()))
                     r["match"] = ("name" if words & btoks
+                                  else "name_start" if any(w.startswith(t) for w in words for t in btoks if len(t) >= 4)
                                   else "relation" if _has(r["relation"], btoks) else "partial")
             if not tb:
                 out["birthdays_total"] = len(rows)
@@ -1093,6 +1113,22 @@ def _gather(agent, kind, q, user_text, use_text=True):
                 y = getattr(st.find_birthday(r["name"]), "year", None)
                 if y:
                     r["birth_year"] = y
+            if tb and ok:                # one short line per person: survives the size budget, so nobody is dropped
+                direct = toks | ptoks            # words of the message, not names pulled in from matching notes
+                rows_ = [r for r in hit if _has(f"{r['name']} {r['relation']}", direct)] or hit
+                rel_words = set().union(*REL_GROUPS)
+                named = [r for r in rows_ if _has(r["name"], direct - rel_words)]
+                rows_ = named or rows_           # "muborak anna": the named grandmother, not both
+                kept = []                        # one person stored twice ("Annam" and "Omina Annam", same date)
+                base_w = lambda r: set(re.findall(r"\w+", re.sub(r"\s*\(.*\)$", "", r["name"]).lower()))
+                for r in sorted(rows_, key=lambda r: -len(base_w(r))):       # fullest name first
+                    words = base_w(r)
+                    if any(k["date"] == r["date"] and words <= k["_w"] for k in kept):
+                        continue
+                    kept.append({**r, "_w": words})
+                kept.sort(key=lambda r: r["in_days"])
+                out["matched_people"] = [f"{r['name']}: {r['relation'] or 'no relation saved'}, birthday {r['date']} "
+                                         f"(in {r['in_days']} days)" for r in kept]
             return hit
         add("birthdays", bday)
 
@@ -1177,11 +1213,16 @@ def _size(x):
     return len(json.dumps(x, ensure_ascii=False, default=str))
 
 
+KEEP_WHOLE = ("matched_people",)          # never shrunk: the complete answer to "who are my ..." questions
+
+
 def _dump(out, budget):
-    """Shrink the biggest section until it fits, so the JSON stays valid and no store is cut off whole."""
-    out = dict(out)
+    """Shrink the biggest section until it fits, so the JSON stays valid and no store is cut off whole.
+    matched_people goes first and is never shrunk."""
+    out = {**{k: out[k] for k in KEEP_WHOLE if k in out}, **{k: v for k, v in out.items() if k not in KEEP_WHOLE}}
+    budget = max(budget, _size({k: out[k] for k in KEEP_WHOLE if k in out}) + 400)
     while _size(out) > budget:
-        big = max((k for k, v in out.items() if isinstance(v, (list, dict)) and len(v) > 1),
+        big = max((k for k, v in out.items() if isinstance(v, (list, dict)) and len(v) > 1 and k not in KEEP_WHOLE),
                   key=lambda k: _size(out[k]), default=None)
         if big is None:
             break
@@ -1197,6 +1238,20 @@ def recall_data(agent, a, user_text="", budget=2000):
     res = _dump(_gather(agent, kind, q, user_text, use_text=False), budget)
     print(f"[recall] -> {len(res)} chars: {res[:160]}")
     return res
+
+
+def _mentions_person(agent, text):
+    """A short message naming someone from the birthday list ('annam?', 'Islom') is a question about them."""
+    if len(text.split()) > 5:
+        return False
+    toks = {t for t in _expand(set(_tok(text)) - STOP) if len(t) >= 4}
+    if not toks:
+        return False
+    try:
+        people = agent.store.upcoming(366)
+    except Exception:
+        return False
+    return any(_has(f"{b.name} {b.relation or ''}", toks) for b in people)
 
 
 def prefetch(agent, text, budget=1500, think=False):
@@ -1222,7 +1277,7 @@ def prefetch(agent, text, budget=1500, think=False):
             return ""
         print(f"[prefetch think] {len(res)} chars: {res[:120]}")
         return res
-    if not LOOKUP.search(text):
+    if not (LOOKUP.search(text) or _mentions_person(agent, text)):
         return ""
     try:
         out = _gather(agent, "all", "", text)
