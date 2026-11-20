@@ -20,6 +20,8 @@ from .router import Intent
 S, I, B = "string", "integer", "boolean"
 TG = {"telegram": (B, "true if the user also wants the result sent to their Telegram")}
 # (name, description, {param: (type, description)}, required, alias {tool param -> Intent field})
+
+
 TABLE = [
     ("process_download", "Do something with the NEWEST file in the user's Downloads folder (convert, rewrite, summarize, extract, translate).",
      {"instruction": (S, "what to do, in the user's words"),
@@ -138,7 +140,17 @@ TABLE = [
     ("read_reference", "Read a saved reference note in full (course outline, lessons, resources). Use it when the user asks "
      "about the content of such a note.",
      {"topic": (S, "which note, e.g. 'IT course'; empty lists the saved notes")}, [], {}),
+("query_data", "Answer a QUESTION about the user's stored data by querying it: tasks, practice and songs, finance, clients, "
+ "chess games. Use for counts, totals, 'latest', 'how many', per-period or per-person questions. Not for saving.",
+ {"question": (S, "the question in full"), "domain": (S, "finance, tasks, practice")}, ["question", "domain"], {}),
+
+("finance_report", "Any question about the user's money (revenue, income, expenses, spending, balance, purchases, "
+ "transactions). Handled by code behind a PIN: never answer it yourself and never state finance numbers.",
+ {"question": (S, "the user's question in full")}, ["question"], {}),
 ]
+
+
+
 # Tools that WRITE data run one after another in the order requested; the rest can run in parallel.
 SEQUENTIAL = {"add_birthday", "delete_birthday", "calendar_add", "calendar_undo", "remember", "song_add", "practice_log",
               "practice_delete", "log_driving", "task_add", "task_done", "journal_add", "timer", "chess", "quiz", "mac",
@@ -675,6 +687,28 @@ def _song_add(agent, a, text):
     agent.k("song_saved", title=name + (f" by {comp}" if comp else ""), instrument=instr)
 
 
+def _finance_report(agent, a, text):
+    tg = getattr(agent, "tg", None)
+    brain = getattr(agent, "brain", None)
+    if tg is None or not getattr(brain, "extra_rules", ""):      # extra_rules is only set for Telegram
+        return agent.say("error: finance reports are only available in Telegram, behind the PIN.")
+    from .telegram_linda import briefing
+    briefing.finance_request(agent, tg, str(a.get("question") or text))
+    agent._fin_done = True
+    agent.say("Done: the finance answer was sent to Telegram. Reply with one short line.")
+
+def _query_data(agent, a, text):
+    q, dom = str(a.get("question") or text), str(a.get("domain") or "").lower()
+    da = getattr(agent, "data_ask", None)
+    if da is None or dom not in da.domains:
+        return agent.say(f"error: unknown domain. Use one of: {', '.join(da.domains) if da else 'none'}.")
+    tg = getattr(agent, "tg", None)
+    if dom == "finance":                                  # PIN door stays in code
+        return _finance_report(agent, a, text)
+    ans = da.ask(q, dom)
+    agent.say(ans)                                        # the model sees it and can word it in the reply
+
+
 # One registry of special handlers.
 SPECIAL = {
     "calendar_add": _calendar_add, "task_add": _task_add, "web_answer": _web_answer,
@@ -682,6 +716,8 @@ SPECIAL = {
     "read_note": _read_note, "birthday_lookup": birthday_lookup,
     "practice_log": _practice_log, "practice_delete": _practice_delete, "log_progress": _log_progress,
     "task_done": _task_done, "song_add": _song_add,
+    "finance_report": _finance_report,
+    "query_data": _query_data
 }
 
 
@@ -1006,7 +1042,7 @@ def _gather(agent, kind, q, user_text, use_text=True):
         if want(f):
             def sect(f=f):
                 every = _file_lines(agent, f)
-                rows, ok = _lines(every, toks, 10 if strict else 15)
+                rows, ok = _lines(every, toks, 10 if strict else 25)
                 if strict and not ok:
                     return None
                 if toks and not ok:

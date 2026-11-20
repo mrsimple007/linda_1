@@ -108,12 +108,12 @@ def beautify(text):
     icon = next((ic for k, ic in ICONS if k in title.lower()), "📌")
     return f"<b>{icon} {esc(title)}</b>\n\n" + "\n\n".join(out)
 
-
 class Telegram:
     def __init__(self, token, chat_id, widgets=False, api="https://api.telegram.org"):
         self.token, self.chat_id = token, chat_id
         self.widgets, self.api = widgets, api.rstrip("/")
         self._offset = 0
+        self.last_message_id = None      # id of the user's message currently being handled
 
     @classmethod
     def from_env(cls, cfg=None):
@@ -218,6 +218,21 @@ class Telegram:
         except Exception:
             pass
 
+    # ---- deleting (used to remove PINs from the chat) -----------------------
+    def delete_message(self, message_id):
+        try:
+            requests.post(self._url("deleteMessage"),
+                          data={"chat_id": self.chat_id, "message_id": message_id}, timeout=10)
+        except Exception as e:
+            print("[telegram] delete failed:", repr(e)[:100])
+
+    def delete_later(self, message_id, delay=5):
+        """Delete one of the user's messages after `delay` seconds."""
+        if message_id:
+            t = threading.Timer(delay, self.delete_message, args=(message_id,))
+            t.daemon = True
+            t.start()
+
     # ---- incoming -------------------------------------------------------
     def listen(self, on_text):
         """Long-poll in a daemon thread. Only text from your own chat id reaches on_text(text)."""
@@ -244,6 +259,7 @@ class Telegram:
                             continue
                         text = (m.get("text") or "").strip()
                         if text:
+                            self.last_message_id = m.get("message_id")
                             try:
                                 on_text(text)
                             except Exception as e:

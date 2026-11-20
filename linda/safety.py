@@ -15,7 +15,7 @@ CANCELLATIONS = {
 READ_ONLY = {
     "time", "battery", "weather", "news", "morning", "list_birthdays",
     "calendar_agenda", "stats", "task_list", "search_notes", "read_note",
-    "birthday_lookup", "web_answer", "plan", "chat", "recall", "read_reference",
+    "birthday_lookup", "web_answer", "plan", "chat", "recall", "read_reference", "finance_report", "query_data"
 }
 SENSITIVE = {
     "calendar_add", "calendar_undo", "clipboard", "process_download", "delete_birthday", "remove_note",
@@ -26,7 +26,8 @@ REVERSIBLE = {
     "journal_add", "log_driving", "mac", "music", "open_app", "practice_log",
     "remember", "save_note", "song_add", "task_add", "task_done", "timer",
     "tune", "analyze_playing", "chess", "quiz", "volume",
-    "telegram_send", "log_progress, ""save_reference", "read_reference",
+"telegram_send", "log_progress", "save_reference", "read_reference",
+
 }
 
 

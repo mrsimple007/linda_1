@@ -597,6 +597,15 @@ class FinanceService:
         finally:
             con.close()
 
+
+    def balance(self, sheet: str) -> dict:
+        r = self._run(
+            "SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount END),0) AS inc, "
+            "COALESCE(SUM(CASE WHEN type='expense' THEN amount END),0) AS exp, "
+            "COUNT(*) AS n, MIN(tx_date) AS since FROM finance WHERE status='active' AND sheet=?",
+            (sheet,), fetch=True)[0]
+        return dict(r)
+
     def get_state(self, key):
         rows = self._run("SELECT value FROM finance_state WHERE key=?", (key,), fetch=True)
         return rows[0]["value"] if rows else None
@@ -694,7 +703,12 @@ class FinanceService:
         end = dt.date(y + (m == 12), m % 12 + 1, 1)
         return month, start.isoformat(), end.isoformat()
 
-    def summary(self, month: Optional[str] = None) -> dict:
+    def recent(self, sheet: str, tx_type: str = "expense", n: int = 5) -> list:
+        return [dict(r) for r in self._run(
+            "SELECT tx_date, amount, description FROM finance WHERE status='active' AND sheet=? AND type=? "
+            "ORDER BY tx_date DESC, id DESC LIMIT ?", (sheet, tx_type, n), fetch=True)]
+
+    def summary(self, month: Optional[str] = None, top: int = 5) -> dict:
         month, a, b = self._month_range(month)
         out: dict = {"month": month, "sheets": {}}
         for r in self._run("SELECT sheet, type, SUM(amount) AS total FROM finance WHERE status='active' "
@@ -705,8 +719,10 @@ class FinanceService:
             d["top"] = [(r["d"], r["total"]) for r in self._run(
                 "SELECT MIN(description) AS d, SUM(amount) AS total FROM finance WHERE status='active' "
                 "AND type='expense' AND sheet=? AND tx_date>=? AND tx_date<? GROUP BY lower(description) "
-                "ORDER BY total DESC LIMIT 3", (sh, a, b), fetch=True)]
+                "ORDER BY total DESC LIMIT ?", (sh, a, b, top), fetch=True)]
         return out
+
+
 
     def format_summary(self, month: Optional[str] = None) -> str:
         s = self.summary(month)

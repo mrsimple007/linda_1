@@ -22,9 +22,12 @@ import requests
 import os
 
 from .. import tools
-from ..i18n import fmt_date
+from ..i18n import fmt_date, fmt_today
 from .. import reference
 from .telegram import esc
+from .finance import FinanceError
+
+
 
 PLANS_WINDOW = 4 * 3600          # after the morning message, a plain reply is read as "today's plans" first
 TIME = re.compile(r"\b(?:at\s+)?([01]?\d|2[0-3]):([0-5]\d)\b")
@@ -33,7 +36,8 @@ FEEDS = ["https://feeds.bbci.co.uk/news/world/rss.xml", "https://feeds.bbci.co.u
          "https://feeds.bbci.co.uk/news/technology/rss.xml", "https://feeds.npr.org/1001/rss.xml"]
 TG_WORDS = re.compile(r"telegram|\bsend\b|отправ|пришли|yubor|jo'?nat", re.I)
 PLAN_WORDS = re.compile(r"\bplans?\b|\btasks?\b|\bto-?do\b|планы?\b|задач|rejalar|vazifa", re.I)
-COMMANDS = [("start", "Meet Linda"), ("news", "Latest headlines with links"), ("tasks", "Your open tasks"),
+COMMANDS = [("start", "Meet Linda"), ("today", "News, today's tasks and birthdays"),
+            ("news", "Latest headlines with links"), ("tasks", "Your open tasks"),
             ("birthdays", "All saved birthdays"), ("plans", "Add today's plans"), ("idea", "Save an idea"),
             ("goal", "Save a goal"), ("done", "Mark a task done"), ("notes", "Everything I remember")]
 
@@ -51,12 +55,14 @@ S = {
            "nothing": "Nothing to save in that one.", "no_tasks": "No open tasks. Enjoy the day!",
            "welcome": "This is Linda, your personal assistant. I live on your Mac, and now I'm here in Telegram too.",
            "can": "What I can do here", "just": "Or just write to me",
-           "can_lines": ["/news: fresh headlines with links", "/tasks: your open tasks",
+           "can_lines": ["/today: news, today's tasks and birthdays", "/news: fresh headlines with links", "/tasks: your open tasks",
                          "/birthdays: every saved birthday", "/plans: add today's plans, one per line",
                          "/idea and /goal: save them in one step"],
            "just_line": "An idea, a goal, a fact about you, a task, a diary thought, or what you worked on. "
                         "I work out where it belongs and save it.",
-           "start_footer": "Every morning I send the news and ask for your plans."},
+           "start_footer": "Every morning I send the news and ask for your plans.",
+           "today": "Today", "today_tasks": "Tasks for today", "no_today_tasks": "No open tasks for today.",
+           "no_bday": "No birthdays today.", "more": "+{n} more: /tasks"},
     "ru": {"morning": "Доброе утро, {user}", "hello": "Привет, {user}", "intro": "Линда на связи. Напиши планы на сегодня, каждый с новой строки, и я "
            "сохраню их в задачи и дневник.", "news": "Главные новости", "tasks": "В твоём списке",
            "bday": "Дни рождения сегодня", "saved": "Сохранено", "dup": "Уже в списке",
@@ -70,12 +76,14 @@ S = {
            "nothing": "Тут нечего сохранять.", "no_tasks": "Открытых задач нет. Хорошего дня!",
            "welcome": "Это Линда, твой личный помощник. Я живу на твоём Mac, а теперь и здесь, в Telegram.",
            "can": "Что я умею здесь", "just": "Или просто напиши мне",
-           "can_lines": ["/news: свежие новости со ссылками", "/tasks: открытые задачи",
+           "can_lines": ["/today: новости, задачи и дни рождения на сегодня", "/news: свежие новости со ссылками", "/tasks: открытые задачи",
                          "/birthdays: все дни рождения", "/plans: планы на сегодня, каждый с новой строки",
                          "/idea и /goal: сохранить в один шаг"],
            "just_line": "Идею, цель, факт о тебе, задачу, мысль для дневника или что ты сделал. "
                         "Я пойму, куда это отнести, и сохраню.",
-           "start_footer": "Каждое утро я присылаю новости и спрашиваю про планы."},
+           "start_footer": "Каждое утро я присылаю новости и спрашиваю про планы.",
+           "today": "Сегодня", "today_tasks": "Задачи на сегодня", "no_today_tasks": "Открытых задач на сегодня нет.",
+           "no_bday": "Сегодня дней рождения нет.", "more": "ещё {n}: /tasks"},
     "uz": {"morning": "Xayrli tong, {user}", "hello": "Salom, {user}", "intro": "Linda shu yerda. Bugungi rejalaringizni har birini yangi qatorga "
            "yozing, men ularni bugungi vazifalar va kundalikka saqlayman.", "news": "So'nggi yangiliklar",
            "tasks": "Ro'yxatingizda", "bday": "Bugungi tug'ilgan kunlar", "saved": "Saqlandi",
@@ -89,12 +97,14 @@ S = {
            "nothing": "Bunda saqlaydigan narsa yo'q.", "no_tasks": "Ochiq vazifalar yo'q. Kuningiz xayrli o'tsin!",
            "welcome": "Bu Linda, sizning shaxsiy yordamchingiz. Men Mac'ingizda yashayman, endi Telegramda ham.",
            "can": "Bu yerda nima qila olaman", "just": "Yoki shunchaki yozing",
-           "can_lines": ["/news: havolali so'nggi yangiliklar", "/tasks: ochiq vazifalar",
+           "can_lines": ["/today: yangiliklar, bugungi vazifalar va tug'ilgan kunlar", "/news: havolali so'nggi yangiliklar", "/tasks: ochiq vazifalar",
                          "/birthdays: barcha tug'ilgan kunlar", "/plans: bugungi rejalar, har biri yangi qatorda",
                          "/idea va /goal: bir qadamda saqlash"],
            "just_line": "G'oya, maqsad, o'zingiz haqingizda fakt, vazifa, kundalik fikr yoki nima qilganingiz. "
                         "Qayerga tegishli ekanini aniqlab, saqlayman.",
-           "start_footer": "Har tongda yangiliklar yuboraman va rejalaringizni so'rayman."},
+           "start_footer": "Har tongda yangiliklar yuboraman va rejalaringizni so'rayman.",
+           "today": "Bugun", "today_tasks": "Bugungi vazifalar", "no_today_tasks": "Bugunga ochiq vazifalar yo'q.",
+           "no_bday": "Bugun tug'ilgan kunlar yo'q.", "more": "yana {n}: /tasks"},
 }
 M = {
     "en": {"news_fail": "I couldn't reach the news feeds right now.", "news_sent": "Sent {n} headlines to your Telegram.",
@@ -116,7 +126,20 @@ M = {
 
 # Telegram file (briefing.py): near the other regexes
 NEWS_ASK = re.compile(r"\b(?:news|headlines)\b|новост|yangilik", re.I)
+LEFT_Q = re.compile(r"\bleft\b|remain\w*|остал|qold", re.I)
 
+TASKISH = re.compile(r"\b(tasks?|to-?do|close|closed|done|finished|completed|improv\w*|implement\w*|"
+                     r"fixed|add|added)\b|задач|vazifa", re.I)
+
+def _balance_card(tg, svc, sheet):
+    icon, name = SHEETS[sheet]
+    b = svc.balance(sheet)
+    left = b["inc"] - b["exp"]
+    lines = [f"🟢 Total income: <b>{_money(b['inc'])}</b>", f"🔴 Total expenses: <b>{_money(b['exp'])}</b>",
+             f"{'💰' if left >= 0 else '⚠️'} Left: <b>{_money(left, sign=True)}</b>"]
+    since = f" since {b['since']}" if b["since"] else ""
+    return tg.send_styled(f"{name} finance · all time", [("", lines)],
+                          footer=f"UZS · {b['n']} entries{since}", icon=icon)
 
 
 def _lang(agent):
@@ -703,9 +726,11 @@ TG_RULES = (
     "Write the log text as what was done, e.g. 'Studied tickets 55, 56 and 57 for the driver's licence exam.' "
     "Work that belongs to no ongoing project goes to project 'General'. "
     "Never state finance numbers: finance reports are handled by code behind a PIN."
+        "Any question about the user's money (revenue, income, expenses, spending, balance, purchases, transactions, "
+    "per month or category) -> call finance_report with the user's question in full. Never answer it yourself, "
+    "never state finance numbers, and never save such a question as a task or note. "
+    
     + reference.TG_RULES_EXTRA
-
-
     
     )
 
@@ -871,6 +896,45 @@ def _news(agent, tg):
     return tg.send_styled(t["news"], news_sections(digest), icon="📰")
 
 
+def _today(agent, tg, limit=15):
+    """/today: news + open tasks due today (or overdue/undated, same as the morning card) + today's birthdays.
+    Each part fails on its own, so a dead news feed still leaves the tasks and birthdays."""
+    lang = _lang(agent)
+    t, today = S[lang], datetime.date.today()
+    tg.typing()
+    sections = []
+    try:
+        digest = get_news(agent, 6, lang)
+    except Exception as e:
+        print("[today news]", repr(e)[:100])
+        digest = []
+    sections += news_sections(digest) if digest else [(t["news"], [esc(t["news_fail"])])]
+    try:
+        rows = _open_today(agent)
+        tt = tools.task_times(agent.cfg)
+        lines = []
+        for r in rows[:limit]:
+            when = " ".join(x for x in (_due_label(r[2], today), tt.get(tools._norm(r[1]), "")) if x)
+            lines.append(f"• {esc(r[1])}" + (f" <i>({esc(when)})</i>" if when else ""))
+        if len(rows) > limit:
+            lines.append(f"<i>{esc(t['more'].format(n=len(rows) - limit))}</i>")
+        sections.append((f"{t['today_tasks']} ({len(rows)})" if rows else t["today_tasks"],
+                         lines or [esc(t["no_today_tasks"])]))
+    except Exception as e:
+        print("[today tasks]", repr(e)[:100])
+    try:
+        bdays = [b for b in agent.store.upcoming(366) if b.n == 0]
+        lines = []
+        for b in bdays:
+            rel = f" ({esc(b.relation)})" if getattr(b, "relation", "") else ""
+            age = f" · {esc(M[lang]['turns'].format(a=b.age))}" if getattr(b, "age", 0) else ""
+            lines.append(f"🎂 <b>{esc(b.name)}</b>{rel}{age}")
+        sections.append((t["bday"], lines or [esc(t["no_bday"])]))
+    except Exception as e:
+        print("[today birthdays]", repr(e)[:100])
+    return tg.send_styled(f"{t['today']} · {fmt_today(today, lang)}", sections, icon="📅")
+
+
 def _pieces(text, n=3500):
     out, cur = [], ""
     for line in text.splitlines(keepends=True):
@@ -921,6 +985,8 @@ def _command(agent, tg, cmd, rest):
     t = S[_lang(agent)]
     if cmd in ("start", "help"):
         return _welcome(agent, tg)
+    if cmd == "today":
+        return _today(agent, tg)
     if cmd == "news":
         return _news(agent, tg)
     if cmd == "tasks":
@@ -948,40 +1014,171 @@ def _command(agent, tg, cmd, rest):
 
 import hmac
 
-FIN_ASK = re.compile(r"\b(how much|how many|what(?:'s| is| are| was)|show|total|report|summary|balance|"
-                     r"сколько|покажи|итого|qancha|ko'?rsat)\b", re.I)
-FIN_WORD = re.compile(r"\b(revenue|income|expenses?|expences?|spent|spending|earned|profit|finances?)\b|"
-                     r"доход|расход|выручк|прибыл|daromad|xarajat", re.I)
-FIN_CMDS = ("/summary", "summary", "/balance", "balance", "/finance")   # same words FinanceChat answers
+from .finance import fmt_amount
+
+FIN_WORD = re.compile(
+    r"\b(revenue|income|expenses?|expences?|spent|spending|earned|profit|finances?|purchases?|bought|"
+    r"transactions?|payments?|balance|summary)\b|доход|расход|выручк|прибыл|покупк|трат|"
+    r"daromad|xarajat|xarid", re.I)
+FIN_CMDS = ("/summary", "summary", "/balance", "balance", "/finance")
 LAST_MONTH = re.compile(r"last month|previous month|прошл\w+ месяц|o'?tgan oy", re.I)
+RECENT = re.compile(r"\b(latest|last|recent|newest)\b|последн|oxirgi", re.I)
+REPORT_Q = re.compile(r"revenue|income|expenses?|expences?|summary|balance|report|profit|finances?|"
+                      r"доход|расход|daromad|xarajat", re.I)
+INCOME_Q = re.compile(r"income|revenue|earn|доход|daromad", re.I)
+MY_WORDS = re.compile(r"my[\s_-]?finance|personal|private|личн|shaxsiy", re.I)
+CO_WORDS = re.compile(r"company|business|\bbiz\b|kompaniya|компани", re.I)
+MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September",
+             "October", "November", "December"]
+SHEETS = {"my_finance": ("👤", "Personal"), "company": ("🏢", "Company")}
 FIN_SESSION, FIN_LOCK = 300, 900
-
-
-def _fin_pin(agent):
-    return str(agent.cfg.get("finance_pin") or os.getenv("LINDA_FINANCE_PIN") or "")
 
 
 def _fin_month(t):
     m = re.search(r"\b(\d{4}-\d{2})\b", t)
     if m:
         return m.group(1)
+    today = datetime.date.today()
     if LAST_MONTH.search(t):
-        return (datetime.date.today().replace(day=1) - datetime.timedelta(days=1)).strftime("%Y-%m")
-    return None                                   # None = this month
+        return (today.replace(day=1) - datetime.timedelta(days=1)).strftime("%Y-%m")
+    low = t.lower()
+    for i, name in enumerate(MONTHS_EN, 1):
+        if re.search(rf"\b{name.lower()}\b", low):
+            return f"{today.year - (i > today.month)}-{i:02d}"
+    return None                                     # None = this month
 
+
+def _month_label(m):
+    y, mo = map(int, (m or datetime.date.today().strftime("%Y-%m")).split("-"))
+    return f"{MONTHS_EN[mo - 1]} {y}"
+
+
+def _fin_sheets(q):
+    my, co = bool(MY_WORDS.search(q)), bool(CO_WORDS.search(q))
+    return ["my_finance"] if my and not co else ["company"] if co and not my else ["my_finance", "company"]
+
+
+def _money(n, sign=False):
+    s = fmt_amount(abs(int(n)))
+    return ("−" if n < 0 else "+" if sign and n > 0 else "") + s
+
+
+def _bar(share, n=10):
+    k = max(0, min(n, round(share * n)))
+    return "▰" * k + "▱" * (n - k)
+
+
+def _summary_card(tg, svc, sheet, s, month):
+    icon, name = SHEETS[sheet]
+    title = f"{name} finance · {_month_label(month)}"
+    d = s["sheets"].get(sheet)
+    if not d:
+        return tg.send_styled(title, icon=icon, intro="No entries for this month yet.")
+    inc, exp, bal = d["income"], d["expense"], d["balance"]
+    sections = [("", [f"🟢 Income: <b>{_money(inc)}</b>", f"🔴 Expenses: <b>{_money(exp)}</b>",
+                      f"{'💰' if bal >= 0 else '⚠️'} Balance: <b>{_money(bal, sign=True)}</b>"])]
+    if d["top"]:
+        lines = []
+        for i, (n, t) in enumerate(d["top"], 1):
+            share = t / exp if exp else 0
+            lines.append(f"{i}. {esc(n)}\n    <b>{_money(t)}</b> · {_bar(share)} {share:.0%}")
+        sections.append(("Biggest expenses", lines))
+    return tg.send_styled(title, sections, footer="UZS · only entries made through Linda", icon=icon)
+
+
+def _recent_card(tg, svc, sheet, tx_type):
+    icon, name = SHEETS[sheet]
+    rows = svc.recent(sheet, tx_type, 5)
+    kind = "income" if tx_type == "income" else "expenses"
+    title = f"{name} · latest {kind}"
+    if not rows:
+        return tg.send_styled(title, icon=icon, intro="Nothing recorded yet.")
+    sign = "🟢 +" if tx_type == "income" else "🔴 −"
+    lines = []
+    for r in rows:
+        d = datetime.date.fromisoformat(r["tx_date"])
+        lines.append(f"{sign}{fmt_amount(r['amount'])}  <b>{esc(r['description'])}</b>\n    {d:%d.%m.%Y}")
+    return tg.send_styled(title, [("", lines)], footer="UZS", icon=icon)
+
+FIN_PLAN = """Classify one message sent to a personal assistant. Today is {today}.
+Return ONLY JSON: {{"finance": true, "sheet": "my_finance", "view": "summary", "type": "expense", "month": null}}
+- finance: true ONLY if the user asks to READ money data (totals, revenue, expenses, balance, latest purchases).
+  Reporting finished work, tasks, or to-dos is false even if the word "finance" appears.
+- sheet: my_finance = personal/private, company = business/company, both = not specified.
+- view: summary = income/expenses of a month; recent = latest entries; balance = how much is left overall;
+  custom = any other money question.
+- type: income or expense (only for view=recent).
+- month: YYYY-MM for summary; null = this month."""
+
+
+def _fin_plan(agent, text):
+    """LLM understands the question; if every LLM is down, the old regexes decide."""
+    raw = llm_text(agent, FIN_PLAN.format(today=datetime.date.today()), text, temp=0)
+    obj = _json_obj(raw)
+    if isinstance(obj, dict) and "finance" in obj:
+        sheet = obj.get("sheet")
+        view = obj.get("view")
+        month = obj.get("month")
+        if not (isinstance(month, str) and re.fullmatch(r"\d{4}-\d{2}", month)):
+            month = None
+        return {"finance": bool(obj["finance"]),
+                "sheets": [sheet] if sheet in SHEETS else ["my_finance", "company"],
+                "view": view if view in ("summary", "recent", "balance", "custom") else "summary",
+                "type": "income" if obj.get("type") == "income" else "expense",
+                "month": month}
+    # fallback: the regex logic
+    view = ("balance" if LEFT_Q.search(text) else "recent" if RECENT.search(LAST_MONTH.sub("", text))
+            else "summary" if REPORT_Q.search(text) else "custom")
+    return {"finance": not TASKISH.search(text), "sheets": _fin_sheets(text), "view": view,
+            "type": "income" if INCOME_Q.search(text) else "expense", "month": _fin_month(text)}
 
 def _fin_answer(agent, tg, query):
-    """Numbers come from FinanceService (SQL), never from an LLM."""
     svc = getattr(agent, "finance", None)
     if svc is None:
         return tg.send_styled("Finance", icon="💰", intro="Finance is not set up.")
+    p = _fin_plan(agent, query)
+    print(f"[finance] plan={p}")
     try:
-        text = svc.format_summary(_fin_month(query))
+        if p["view"] == "balance":
+            for sh in p["sheets"]:
+                _balance_card(tg, svc, sh)
+        elif p["view"] == "recent":
+            for sh in p["sheets"]:
+                _recent_card(tg, svc, sh, p["type"])
+        elif p["view"] == "summary":
+            s = svc.summary(p["month"])
+            for sh in p["sheets"]:
+                _summary_card(tg, svc, sh, s, p["month"])
+        else:
+            da = getattr(agent, "data_ask", None)
+            if da is None:
+                return tg.send_styled("Finance", icon="💰", intro="I can show reports, balances and latest entries.")
+            for sh in p["sheets"]:
+                icon, name = SHEETS[sh]
+                ans = da.ask(f"{query} (use only rows where sheet = '{sh}')", "finance")
+                tg.send_styled(f"{name} finance", icon=icon, intro=ans)
+    except FinanceError as e:
+        tg.send_styled("Finance", icon="💰", intro=str(e))
     except Exception as e:
-        print("[finance summary]", repr(e)[:150])
-        text = f"I couldn't read the finance data: {e}"
-    return tg.send_styled("Finance", icon="💰", intro=esc(text))
+        print("[finance ask]", repr(e)[:150])
+        tg.send_styled("Finance", icon="💰", intro=f"I couldn't read the finance data: {e}")
 
+def _fin_pin(agent):
+    return str(agent.cfg.get("finance_pin") or os.getenv("LINDA_FINANCE_PIN") or "")
+
+
+def finance_request(agent, tg, question):
+    """The ONLY door to finance reads. Pure code: PIN, lockout, session."""
+    now, pin = time.time(), _fin_pin(agent)
+    if not pin:
+        tg.send_styled("Finance", icon="🔒", intro="Set finance_pin in config.yaml (or LINDA_FINANCE_PIN) first.")
+    elif now < getattr(agent, "_fin_lock", 0):
+        tg.send_styled("Finance", icon="🔒", intro="Locked for a few minutes after wrong PINs.")
+    elif now < getattr(agent, "_fin_until", 0):
+        _fin_answer(agent, tg, question)
+    else:
+        agent._fin_pending = (question, now + 120)
+        tg.send_styled("Finance", icon="🔒", intro="Send your finance PIN to see this.")
 
 def finance_gate(agent, tg, t):
     """True when the message was handled here. Guards every finance READ (questions and /summary)."""
@@ -991,6 +1188,7 @@ def finance_gate(agent, tg, t):
     pend = getattr(agent, "_fin_pending", None)
     if pend and now < pend[1] and re.fullmatch(r"\S{3,20}", t) and not (fc and fc.matches(t)):
         agent._fin_pending = None
+        tg.delete_later(getattr(tg, "last_message_id", None))      # the PIN must not stay in the chat
         if now < getattr(agent, "_fin_lock", 0):
             tg.send_styled("Finance", icon="🔒", intro="Locked for a few minutes after wrong PINs.")
         elif pin and hmac.compare_digest(t, pin):
@@ -1003,18 +1201,11 @@ def finance_gate(agent, tg, t):
             tg.send_styled("Finance", icon="🔒", intro="Wrong PIN.")
         return True
     agent._fin_pending = None
-    is_read = (low.split(" ")[0] in FIN_CMDS) or bool(FIN_ASK.search(t) and FIN_WORD.search(t))
+    cmd = low.split(" ")[0] in FIN_CMDS
+    is_read = cmd or (bool(FIN_WORD.search(t)) and _fin_plan(agent, t)["finance"])
     if not is_read or TX_ENTRY.match(t):
-        return False
-    if not pin:
-        tg.send_styled("Finance", icon="🔒", intro="Set finance_pin in config.yaml (or LINDA_FINANCE_PIN) first.")
-    elif now < getattr(agent, "_fin_lock", 0):
-        tg.send_styled("Finance", icon="🔒", intro="Locked for a few minutes after wrong PINs.")
-    elif now < getattr(agent, "_fin_until", 0):
-        _fin_answer(agent, tg, t)
-    else:
-        agent._fin_pending = (t, now + 120)
-        tg.send_styled("Finance", icon="🔒", intro="Send your finance PIN to see this.")
+        return False                      # everything else reaches the brain, which can call finance_report
+    finance_request(agent, tg, t)
     return True
 
 
@@ -1023,22 +1214,29 @@ TX_ENTRY = re.compile(r"^\s*(?:[a-zа-я]{1,10}\s*[:,]\s*)?[+\-\u2212\u2013\u201
 def on_telegram_text(agent, tg, text):
     t = text.strip()
     if finance_gate(agent, tg, t):
+        print(f"[route] finance gate: {t[:60]!r}")
         return
     fc = getattr(agent, "finance_chat", None)
     if fc:
-        reply = fc.handle(t)                      # None means "not a finance message"
+        reply = fc.handle(t)
         if reply is not None:
+            print(f"[route] finance_chat (entry/undo/summary): {t[:60]!r}")
             return tg.send_styled("Finance", icon="💰", intro=reply)
     m = re.match(r"^/(\w+)(?:@\w+)?\s*(.*)$", t, re.S)
     if m:
+        print(f"[route] command /{m.group(1)}")
         cmd, rest = m.group(1).lower(), m.group(2).strip()
         return _command(agent, tg, cmd, rest)
+    print(f"[route] free text -> brain: {t[:60]!r}")
     return _free_text(agent, tg, t)
+
 
 def start_telegram(agent, tg):
     if os.getenv("LINDA_TELEGRAM_STANDALONE") == "1" and not getattr(agent, "is_bot", False):
         print("[telegram] слушает отдельный бот, сервер не слушает")
         return
+
+    # 1) finance: entries, undo, /summary (must not depend on the SQL helper)
     try:
         from linda.telegram_linda.finance import FinanceService
         from .finance_chat import FinanceChat
@@ -1047,5 +1245,19 @@ def start_telegram(agent, tg):
         agent.finance_chat = FinanceChat(agent.finance)
     except Exception as e:
         print("[finance] disabled:", repr(e)[:150])
+
+    # 2) general read-only SQL questions (finance, tasks, practice, ...)
+    try:
+        from .finance_ask import DataAsk, DOMAINS
+        fin = getattr(agent, "finance", None)
+        db_path = fin.db_path if fin else str(tools.ROOT / agent.cfg.get("db_path", "linda.db"))
+        agent.data_ask = DataAsk(
+            db_path,
+            llm=lambda system, user: llm_text(agent, system, user, temp=0),
+            domains=DOMAINS,
+            llm_answer=bool(fin.cfg.get("llm_answer", True)) if fin else True)
+    except Exception as e:
+        print("[data ask] disabled:", repr(e)[:150])
+
     tg.set_commands(COMMANDS)
     tg.listen(lambda text: on_telegram_text(agent, tg, text))

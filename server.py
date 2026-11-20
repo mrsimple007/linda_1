@@ -394,6 +394,28 @@ class LocalSpeaker:
         return getattr(self.web, name)
 
 
+class TunnelGuard:
+    """Host localhost/127.0.0.1: everything. Any other host (the tunnel): only POST /alice/..."""
+    LOCAL = {"localhost", "127.0.0.1"}
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            host = dict(scope["headers"]).get(b"host", b"").decode().split(":")[0].lower()
+            ok = host in self.LOCAL or (scope["type"] == "http" and scope["path"].startswith("/alice/"))
+            if not ok:
+                if scope["type"] == "http":
+                    await send({"type": "http.response.start", "status": 404,
+                                "headers": [(b"content-type", b"text/plain")]})
+                    await send({"type": "http.response.body", "body": b"not found"})
+                else:
+                    await send({"type": "websocket.close", "code": 4403})
+                return
+        await self.app(scope, receive, send)
+
+
 def create_app(cfg, deps, start_background=True, synth=None, recorder=None):
     memory_files.init(cfg)
     d = data_path(cfg)
@@ -583,7 +605,8 @@ def create_app(cfg, deps, start_background=True, synth=None, recorder=None):
         executor.shutdown(wait=False)
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])   # blocks DNS rebinding
+    app.add_middleware(TunnelGuard)
+
 
     @app.get("/api/galaxy")
     async def galaxy():
@@ -636,6 +659,18 @@ def create_app(cfg, deps, start_background=True, synth=None, recorder=None):
             bridge.clients.discard(client)
             client.q.put_nowait(None)
             writer.cancel()
+    import hmac
+    import alice_linda as alice_mod
+    from fastapi.responses import JSONResponse
+    agent.brain = brain                  # alice.py uses agent.brain
+
+    @app.post("/alice/{secret}")
+    def alice_webhook(secret: str, payload: dict):       # plain def: FastAPI runs it in a thread
+        expected = os.getenv("ALICE_SECRET", "")
+        if not expected or not hmac.compare_digest(secret, expected):
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return alice_mod.handle(agent, payload, os.getenv("ALICE_OWNER_ID", ""))
+
 
     app.mount("/", StaticFiles(directory=str(UI_DIR), html=True), name="ui")      # ONLY ui/ is public
     app.state.bridge, app.state.agent, app.state.brain = bridge, agent, brain

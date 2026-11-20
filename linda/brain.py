@@ -246,7 +246,7 @@ class Brain:
                         q = is_quota_error(e)
                         if q and not self.blocked():
                             self._on_quota(e)
-                        print("[brain] gemini failed, falling back:", repr(e)[:120])
+                        print("[brain] gemini failed, falling back:", repr(e)[:250])
                         timer.route = "fallback"
                         self._local(text, notify=q)
                     else:
@@ -311,7 +311,7 @@ class Brain:
         try:
             tools.execute(ag, name, args, text)
         except Exception as e:
-            print(f"[tool {name} failed]", repr(e)[:150])
+            print(f"[tool {name} failed]", repr(e)[:250])
             return f"error: {e}"
         finally:
             ag.speaker = real
@@ -338,8 +338,10 @@ class Brain:
         ag, ev, acted, last, done = self.agent, self.cancel, False, [], []
         L = LANG_NAME.get(ag.lang, "English")
         defs = list(pick(self.oa_tools, text))
-        if not any(_tool_name(d) == "recall" for d in defs):          # reading must always be possible
+        if not any(_tool_name(d) == "recall" for d in defs):
             defs += [d for d in self.oa_tools if _tool_name(d) == "recall"]
+        if self.extra_rules and not any(_tool_name(d) == "finance_report" for d in defs):   # Telegram only
+            defs += [d for d in self.oa_tools if _tool_name(d) == "finance_report"]
         if self.extra_rules or reference.looks_like_reference(text) or reference.MEM_ASK.search(text):
             for nm in ("save_reference", "read_reference"):                 # long notes must always be possible
                 if not any(_tool_name(d) == nm for d in defs):
@@ -377,7 +379,7 @@ class Brain:
                     r = self._try(p, msgs, tool_defs, step, think)
                 except Exception as e:
                     p.cool(e)
-                    print(f"[{p.name}] failed: {repr(e)[:150]}")
+                    print(f"[{p.name}] failed: {repr(e)[:250]}")
                     continue
                 if not (r.content or "").strip() and not r.tool_calls and step == 0:
                     print(f"[{p.name}] empty answer, trying the next one")
