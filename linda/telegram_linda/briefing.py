@@ -591,6 +591,7 @@ def _done_tool():
 
 def _complete_tasks(agent, titles, original):
     """Close tasks with Linda's own tool, then re-read the list. -> HTML lines for the reply card."""
+    agent.done_files = {}
     tool = _done_tool()
     if not tool:
         return ["⚠️ I can't find the 'task done' tool in tools.py, so nothing was changed."]
@@ -602,8 +603,20 @@ def _complete_tasks(agent, titles, original):
         except Exception as e:
             print("[telegram done]", t, repr(e)[:120])
     still = {tools._norm(r[1]) for r in agent.store.open_tasks()}
-    return [f"☑️ <b>Done</b>: {esc(t)}" if tools._norm(t) not in still else f"⚠️ <b>Could not close</b>: {esc(t)}"
-            for t in titles]
+    return [f"☑️ <b>Done</b>: {esc(t)}" + done_files(agent, t) if tools._norm(t) not in still
+            else f"⚠️ <b>Could not close</b>: {esc(t)}" for t in titles]
+
+
+def done_files(agent, title):
+    """'\n   📁 data/tasks.md · data/projects/linda.md' for a task closed in this message ('' if unknown)."""
+    files = (getattr(agent, "done_files", None) or {}).get(tools._norm(title))
+    if not files:
+        done = getattr(agent, "done_files", None) or {}
+        key = next((k for k in done if k.startswith(tools._norm(title)[:40])), None)   # title was trimmed on save
+        files = done.get(key) if key else None
+    if not files:
+        return ""
+    return "\n   📁 " + " · ".join(f"<code>{esc(reference.rel(agent, p))}</code>" for p in files)
 
 
 def _save_items(agent, tg, items, original):
@@ -778,6 +791,7 @@ def _converse(agent, tg, text, in_window):
     if brain is None or not getattr(brain, "providers", None):
         return False
     before = [r[1] for r in agent.store.open_tasks()]
+    agent.done_files = {}                                   # filled by tools.finish_task
     brain.tool_log = []                                      # NEW
     try:
         with muted(agent, text) as mute:
@@ -818,7 +832,7 @@ def _converse(agent, tg, text, in_window):
     after = [r[1] for r in agent.store.open_tasks()]
     b, a = {tools._norm(x) for x in before}, {tools._norm(x) for x in after}
     # what really changed, read back from the database (not what the model claims)
-    changes = [f"☑️ <b>Closed</b>: {esc(x)}" for x in before if tools._norm(x) not in a]
+    changes = [f"☑️ <b>Closed</b>: {esc(x)}" + done_files(agent, x) for x in before if tools._norm(x) not in a]
     changes += [f"➕ <b>Added</b>: {esc(x)}" for x in after if tools._norm(x) not in b]
     changes += _tool_lines(brain, agent)
     brain.history = (brain.history + [("user", text), ("model", reply)])[-2 * brain.cfg["brain"]["history_turns"]:]

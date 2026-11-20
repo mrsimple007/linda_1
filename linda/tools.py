@@ -365,6 +365,7 @@ def sync_tasks_md(agent):
             lines += [f"## Done - {_dmy(day) if day else 'no date'}", ""]
             lines += [f"- [x] {t.strip().rstrip('.!')}" for t in done_by[day]] + [""]
         (agent.data_dir / "tasks.md").write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+        return agent.data_dir / "tasks.md"
     except Exception as e:
         print("[tasks.md]", repr(e)[:150])
 
@@ -402,12 +403,13 @@ def _log_done(agent, project, title, note=""):
     """Same line format as log_progress: '- date · what was achieved'. Never creates a project file."""
     p, _ = _existing_project(agent, project)
     if p is None:
-        return
+        return None
     note = " ".join(str(note or "").split())[:300]
     line = f"- {datetime.date.today()} · {note or 'Completed: ' + title}\n"
     if line not in p.read_text(encoding="utf-8", errors="ignore"):
         with p.open("a", encoding="utf-8") as f:
             f.write(line)
+    return p
             
 _GENERIC = _STOP | {"prepare", "improve", "improving", "add", "study", "working", "make", "new",
                     "start", "finish", "read", "learn", "practice"}
@@ -457,9 +459,9 @@ def finish_task(agent, tid=None, words="", project="", note=""):
         project = own                                   # the task's stored project always wins
     elif not (project and _belongs(agent, project, title)):
         project = ""                                    # model guessed a project that doesn't fit
-    sync_tasks_md(agent)
-    if project:
-        _log_done(agent, project, title, note)
+    files = [sync_tasks_md(agent), _log_done(agent, project, title, note) if project else None]
+    # which md files this close touched, so the Telegram reply can show them (read by briefing.done_files)
+    agent.done_files = {**(getattr(agent, "done_files", None) or {}), _norm(title): [f for f in files if f]}
     agent.k("task_done", title=title)
 
 def _ids(v):

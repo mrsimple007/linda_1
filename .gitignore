@@ -40,3 +40,9 @@ sql codes/
 *service-account*.json
 sigma-celerity-*.json
 config.yaml
+
+# personal data and local docs (kept on disk, never pushed)
+Linda_data/
+/data/
+PROJECT.md
+README.md
