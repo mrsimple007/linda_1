@@ -842,7 +842,7 @@ def looks_like_client(text):
     return contact and (bool(DOB.search(text)) or name)
 
 
-def _run(agent, tg, fn, a, text, reply=False):
+def _run(agent, tg, fn, a, text, reply=False, title=("Clients", "👥")):
     """Run a client tool for a Telegram message. Cards go out from the tool; errors (and, with reply=True,
     the tool's own text) are sent as a short message."""
     from .briefing import muted
@@ -857,7 +857,7 @@ def _run(agent, tg, fn, a, text, reply=False):
     finally:
         agent.in_telegram = False
     if said.startswith("error:"):
-        tg.send_styled("Clients", icon="👥", intro=said[6:].strip())
+        tg.send_styled(title[0], icon=title[1], intro=said[6:].strip())
     elif reply and said:
         tg.send_styled("Clients", icon="↩️", intro=said)
 

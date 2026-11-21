@@ -128,7 +128,7 @@ def period_of(text, today):
         return datetime.date(today.year - 1, 1, 1), datetime.date(today.year - 1, 12, 31), str(today.year - 1)
     if re.search(r"this year|bu yil|эт\w+ год", t):
         return datetime.date(today.year, 1, 1), today, f"{today.year} so far"
-    m = re.search(r"\b(20\d\d)\b", t)
+    m = re.search(r"(?<![\d.-])(20\d\d)(?![\d.-])", t)          # a year alone, not part of 2026-11-19
     if m:
         y = int(m.group(1))
         return datetime.date(y, 1, 1), min(datetime.date(y, 12, 31), today), str(y)
@@ -257,8 +257,9 @@ class BotStats:
     def _label(col):
         words = re.sub(r"_+", " ", col).strip()
         if re.search(r"\bperiod\b", words, re.I) and not re.search(r"previous|prev", words, re.I):
-            words = "in this period" + (" (UZS)" if re.search(r"uzs|amount|sum", words, re.I) else "")
-        words = re.sub(r"\buzs\b", "", words, flags=re.I).strip() or col
+            base = re.sub(r"\b(in|this|the|period|uzs|total)\b", " ", words, flags=re.I)
+            words = (" ".join(base.split()) or "total") + " in this period"
+        words = " ".join(re.sub(r"\buzs\b", " ", words, flags=re.I).split()) or col
         return words[:1].upper() + words[1:]
 
     def format(self, name, per, cols, data):
@@ -273,10 +274,15 @@ class BotStats:
         if len(data) <= 40 and all(re.fullmatch(r"\d{4}-\d{2}-\d{2}(T.*)?", str(r[first])) for r in data):
             same = [c for c in cols[1:] if len({str(r[c]) for r in data}) == 1]          # totals repeated on every row
             vary = [c for c in cols[1:] if c not in same]
+            dates = [datetime.date.fromisoformat(str(r[first])[:10]) for r in data]
+            monthly = all(d.day == 1 for d in dates) and len({(d.year, d.month) for d in dates}) == len(dates)
             lines = [head] + [f"{self._label(c)}: {self._num(c, data[0][c])}" for c in same]
-            for r in data:
-                d = datetime.date.fromisoformat(str(r[first])[:10])
-                lines.append(f"{d:%d %b} — " + ", ".join(self._num(c, r[c]) for c in vary))
+            inline = len(vary) <= 3                            # few numbers: label each one; many: one header line
+            if len(vary) > 1 and not inline:
+                lines.append("Columns: " + " · ".join(self._label(c) for c in vary))
+            for d, r in zip(dates, data):
+                vals = [(f"{self._label(c).lower()} " if inline and len(vary) > 1 else "") + self._num(c, r[c]) for c in vary]
+                lines.append((f"{d:%b %Y}" if monthly else f"{d:%d %b}") + " — " + " · ".join(vals))
             return "\n".join(lines)
         return None
 
@@ -343,7 +349,8 @@ class BotStats:
 # ============================ routing (no AI needed to decide) =========================
 ALIASES = {"quizzer": r"quizzer|simple ?quiz|quiz bot|kvizer|квиз", "slides": r"slides?|slayd|presentation|prezentats|"
            r"referat|презентац|слайд"}
-STATS_Q = re.compile(r"\busers?\b|foydalanuvchi|пользоват|юзер|subscriber|\bnew\b|active|joined|signed up|payments?|"
+STATS_Q = re.compile(r"\busers?\b|foydalanuvchi|пользоват|юзер|subscriber|\bnew (users?|members|subscribers|signups?)\b|"
+                     r"active (users?|members)|joined|signed up|sign-?ups|payments?|revenue|daromad|выручк|"
                      r"to'?lov|оплат|premium|quizzes|presentations|files|docs?\b|how many|how much|qancha|nechta|"
                      r"сколько|statisti|\bstats?\b|growth|o'?sish|рост", re.I)
 EXPLAIN = re.compile(r"what is (it|this)|nima (u|bu)|что это|tell me about|haqida", re.I)
@@ -368,10 +375,31 @@ def _bot_named(agent, text):
     return hits[0] if hits else None
 
 
+TASKY = re.compile(r"\b(done|finished|completed?|closed?|bajarildi|bajardim|tugatdim|tayyor|qildim|сделал\w*|готово?|"
+                   r"выполнил\w*|need to|needs to|have to|has to|must|should|want to|going to|plan to|improve\w*|"
+                   r"redesign|refactor|kerak|qilish kerak|yaxshila\w*|нужно|надо|улучш\w*|хочу)\b|^\s*[•\-*]\s|^\s*(add|implement|create|make|fix|build|integrate|remind|"
+                   r"qo'?sh|qil|сделай|добавь)\b|⚠️", re.I | re.M)
+
+
+def _is_task_text(agent, t):
+    """A to-do, a finished task or a pasted task line ('• Add Simple Quizzer stats ... - done') is not a question."""
+    if TASKY.search(t):
+        return True
+    try:
+        import difflib
+        low = t.lower()
+        return any(difflib.SequenceMatcher(None, r[1].lower(), low).ratio() > 0.75 or r[1].lower() in low
+                   for r in agent.store.open_tasks())
+    except Exception:
+        return False
+
+
 def wants_stats(agent, text):
     """-> 'quizzer' / 'slides' / 'both' / '' (both bots) when the message is a numbers question about the bots, else None."""
     t = text.strip()
     if t.startswith("/") or len(t) > 300 or not (agent.cfg.get("bot_stats") or {}).get("bots"):
+        return None
+    if _is_task_text(agent, t):
         return None
     bot = _bot_named(agent, t)
     if bot and bot != "both":
@@ -392,7 +420,7 @@ def _refinement(agent, text):
     """'November', 'and last month?', 'only Slides' right after a stats answer: the same question, changed."""
     last = getattr(agent, "_last_stats", None)
     t = text.strip()
-    if not last or time.time() - last[2] > 600 or len(t.split()) > 6 or STATS_Q.search(t):
+    if not last or time.time() - last[2] > 600 or len(t.split()) > 6 or STATS_Q.search(t) or _is_task_text(agent, t):
         return None
     bot = _bot_named(agent, t)
     if not (REFINE.search(t) or bot):
@@ -412,7 +440,7 @@ def telegram_text(agent, tg, text):
     print(f"[route] bot stats -> {bot or 'both bots'}{' (refining the last question)' if ref else ''}")
     agent._last_stats = (question, bot, time.time())
     from .clients import _run
-    _run(agent, tg, bot_stats, {"question": question, "bot": bot}, question)
+    _run(agent, tg, bot_stats, {"question": question, "bot": bot}, question, title=("Bot stats", "📊"))
     return True
 
 
