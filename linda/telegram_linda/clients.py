@@ -725,6 +725,7 @@ def _send_card(agent, c, title_icon="👤", intro=""):
                 (f"Progress {c['done']}/{c['total']}", [esc(x) for x in c["steps"]]),
                 ("Visa, payment, notes", [esc(x) for x in c["extra"]])]
     tg.send_styled(c["name"], sections, icon=title_icon, intro=intro)
+    agent.card_sent = True
 
 
 def _note(res):

@@ -144,6 +144,11 @@ TABLE = [
  "chess games. Use for counts, totals, 'latest', 'how many', per-period or per-person questions. Not for saving.",
  {"question": (S, "the question in full"), "domain": (S, "finance, tasks, practice")}, ["question", "domain"], {}),
 
+("bot_stats", "Answer ANY question about the user's own Telegram bots (Simple Quizzer, Simple Slides): new users, "
+ "active users, files/quizzes/presentations made, payments, groups, per day/month/year, comparisons. Runs a read-only "
+ "SQL query on the bots' database. Pass the question in full.",
+ {"question": (S, "the user's question in full, with the period"),
+  "bot": (S, "quizzer, slides, or empty for both")}, ["question"], {}),
 ("client_add", "Save an agency client's details (study, work, language courses in Germany) to the clients database and "
  "Google Sheet: a new client, OR new info for an existing one (it is matched by email, passport or name and updated). "
  "Partial details are fine: save them, never ask for missing ones. Copy the details exactly.",
@@ -710,6 +715,11 @@ def _song_add(agent, a, text):
     agent.k("song_saved", title=name + (f" by {comp}" if comp else ""), instrument=instr)
 
 
+def _bot_stats():
+    from .telegram_linda import bot_stats
+    return bot_stats
+
+
 def _clients():
     from .telegram_linda import clients
     return clients
@@ -745,6 +755,7 @@ SPECIAL = {
     "practice_log": _practice_log, "practice_delete": _practice_delete, "log_progress": _log_progress,
     "task_done": _task_done, "song_add": _song_add,
     "finance_report": _finance_report,
+    "bot_stats": lambda ag, a, t: _bot_stats().bot_stats(ag, a, t),
     "client_add": lambda ag, a, t: _clients().client_add(ag, a, t),
     "client_update": lambda ag, a, t: _clients().client_update(ag, a, t),
     "client_info": lambda ag, a, t: _clients().client_info(ag, a, t),

@@ -8,12 +8,13 @@ CORE = {"task_add", "task_done", "timer", "plan", "stats", "practice_log", "song
         "delete_birthday", "save_note", "complete_goal", "remove_note", "journal_add", "log_progress",
         "time", "battery", "volume", "music", "mac", "open_app", "chess", "quiz", "remember",
         "calendar_agenda", "calendar_add", "log_driving", "telegram_send", "save_reference", "read_reference", "finance_report", "query_data",
-        "client_add", "client_update", "client_info", "client_list", "client_undo"}
+        "client_add", "client_update", "client_info", "client_list", "client_undo", "bot_stats"}
 _T = {"string": "string", "integer": "integer", "boolean": "boolean"}
 
 BASE = {"recall", "task_add", "task_done", "add_birthday", "delete_birthday", "journal_add", "log_progress",
         "save_note", "practice_log", "song_add", "telegram_send", "music", "remember", "save_reference", "read_reference", "finance_report", "query_data",
-        "client_add", "client_update", "client_info", "client_list", "client_undo"}   # client names carry no keyword
+        "client_add", "client_update", "client_info", "client_list", "client_undo",   # client names carry no keyword
+        "bot_stats"}
 EXTRA = [
     (r"client|klient|mijoz|клиент|\bTLS\b|expatrio|proton|videx|viza\b|visa\b",
      {"client_add", "client_update", "client_info", "client_list", "client_undo"}),

@@ -37,6 +37,7 @@ FEEDS = ["https://feeds.bbci.co.uk/news/world/rss.xml", "https://feeds.bbci.co.u
 TG_WORDS = re.compile(r"telegram|\bsend\b|отправ|пришли|yubor|jo'?nat", re.I)
 PLAN_WORDS = re.compile(r"\bplans?\b|\btasks?\b|\bto-?do\b|планы?\b|задач|rejalar|vazifa", re.I)
 COMMANDS = [("start", "Meet Linda"), ("today", "News, today's tasks and birthdays"),
+            ("stats", "Ask about your bots: users, activity, payments"),
             ("client", "Add or show a client"), ("clients", "All clients and their progress"),
             ("news", "Latest headlines with links"), ("tasks", "Your open tasks"),
             ("birthdays", "All saved birthdays"), ("plans", "Add today's plans"), ("idea", "Save an idea"),
@@ -728,7 +729,9 @@ TG_RULES = (
     "log_progress; the user's AGENCY CLIENTS (people going to Germany) -> client_add for a new client or pasted client "
     "details (also partial ones, e.g. only an email and password: save them, never ask for more), client_update for "
     "steps/fields of an existing client, client_info / client_list for questions about them, never task_add, save_note "
-    "or remember for them. OPPORTUNITIES (scholarships, grants, exchange programmes, competitions, calls for "
+    "or remember for them. Questions about the user's OWN BOTS (Simple Quizzer, Simple Slides: users, new users, "
+    "active users, quizzes, presentations, files, payments, any period) -> bot_stats with the question in full; never "
+    "answer bot numbers yourself. OPPORTUNITIES (scholarships, grants, exchange programmes, competitions, calls for "
     "applications): save_reference with topic 'Scholarships' (one shared file; use 'Opportunities' for things that are "
     "not scholarships) and the full text; if the user wants to apply or take part, ALSO task_add titled "
     "'Apply: <programme name> (deadline <date and time>)' with due = the application deadline as YYYY-MM-DD. "
@@ -800,6 +803,7 @@ def _converse(agent, tg, text, in_window):
     if brain is None or not getattr(brain, "providers", None):
         return False
     before = [r[1] for r in agent.store.open_tasks()]
+    agent.card_sent = False                                 # set by tools that send their own card (bot stats, clients)
     agent.done_files = {}                                   # filled by tools.finish_task
     brain.tool_log = []                                      # NEW
     try:
@@ -845,6 +849,8 @@ def _converse(agent, tg, text, in_window):
     changes += [f"➕ <b>Added</b>: {esc(x)}" for x in after if tools._norm(x) not in b]
     changes += _tool_lines(brain, agent)
     brain.history = (brain.history + [("user", text), ("model", reply)])[-2 * brain.cfg["brain"]["history_turns"]:]
+    if getattr(agent, "card_sent", False) and not changes:
+        return True                                          # the card IS the answer; skip "I'll check that for you."
     if GREET_WORDS.search(text):
         tg.send(reply)                                       # plain text: easy to forward
     else:
@@ -1010,6 +1016,10 @@ def _command(agent, tg, cmd, rest):
         return _welcome(agent, tg)
     if cmd == "today":
         return _today(agent, tg)
+    if cmd == "stats":
+        from . import bot_stats, clients
+        q = rest or "new users and active users today, yesterday and this month"
+        return clients._run(agent, tg, bot_stats.bot_stats, {"question": q}, q)
     if cmd in ("client", "clients", "client_undo"):
         from . import clients
         return clients.telegram_command(agent, tg, cmd, rest)
@@ -1293,7 +1303,30 @@ def _strip_copied_sender(t):
     return "\n".join(lines).strip() or t
 
 
+@contextlib.contextmanager
+def _typing(tg):
+    """Telegram shows 'typing…' for 5 s only: repeat it every 4 s until the answer is out."""
+    stop = threading.Event()
+    def keep():
+        while not stop.is_set():
+            try:
+                tg.typing()
+            except Exception:
+                pass
+            stop.wait(4)
+    threading.Thread(target=keep, daemon=True).start()
+    try:
+        yield
+    finally:
+        stop.set()
+
+
 def on_telegram_text(agent, tg, text):
+    with _typing(tg):
+        return _on_telegram_text(agent, tg, text)
+
+
+def _on_telegram_text(agent, tg, text):
     t = _strip_copied_sender(text.strip())
     pend = getattr(agent, "_pointer", None)
     last, agent._last_msg = getattr(agent, "_last_msg", 0), time.time()

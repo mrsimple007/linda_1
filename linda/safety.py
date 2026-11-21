@@ -15,7 +15,7 @@ CANCELLATIONS = {
 READ_ONLY = {
     "time", "battery", "weather", "news", "morning", "list_birthdays",
     "calendar_agenda", "stats", "task_list", "search_notes", "read_note",
-    "birthday_lookup", "web_answer", "plan", "chat", "recall", "read_reference", "finance_report", "query_data", "client_info", "client_list",
+    "birthday_lookup", "web_answer", "plan", "chat", "recall", "read_reference", "finance_report", "query_data", "client_info", "client_list", "bot_stats",
 }
 SENSITIVE = {
     "calendar_add", "calendar_undo", "clipboard", "process_download", "delete_birthday", "remove_note",

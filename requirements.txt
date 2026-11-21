@@ -4,6 +4,7 @@ uvicorn[standard]
 google-genai
 ollama>=0.6            # offline fallback + embeddings for notes search
 edge-tts
+psycopg[binary]         # read-only questions about the bots' Supabase database (bot_stats)
 mlx-whisper            # local speech-to-text (Apple Silicon)
 webrtcvad-wheels       # voice activity detection for the local mic (prebuilt webrtcvad)
 sounddevice            # raw mic for music analysis / tuner
