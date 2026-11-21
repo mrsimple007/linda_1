@@ -623,6 +623,7 @@ class Agent(PracticeMixin, QuizMixin, TaskMixin, DocsMixin, ReviewMixin):
         self._show()
         if not self._finished():
             self._engine_turn()
+        return True                                     # the move was the whole turn: nothing else may answer it
         return True
 
     def _gemini_move(self, text):

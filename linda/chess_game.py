@@ -3,6 +3,20 @@ import random, re, shutil
 import chess, chess.engine
 
 CYR = str.maketrans({"а": "a", "с": "c", "е": "e"})      # Cyrillic look-alike letters
+SPOKEN = {                                                 # Russian speech recognition: "е два е четыре", "конь эф три"
+    "a": ("а",), "b": ("бэ", "бе", "би"), "c": ("цэ", "це", "си", "сэ"), "d": ("дэ", "де", "ди"),
+    "e": ("е", "э", "е"), "f": ("эф", "эфф", "ef"), "g": ("жэ", "же", "гэ", "ге", "джи"), "h": ("аш", "ха", "эйч"),
+    "1": ("один", "одна", "раз"), "2": ("два", "две"), "3": ("три",), "4": ("четыре",), "5": ("пять",),
+    "6": ("шесть",), "7": ("семь",), "8": ("восемь",),
+}
+_WORD = {w: k for k, ws in SPOKEN.items() for w in ws}
+
+
+def spoken(text):
+    """'е два е четыре' -> 'e2 e4'; 'конь эф 3' -> 'конь f3'. Letters and numbers said as words become squares."""
+    toks = [_WORD.get(w, w) for w in re.findall(r"[\w']+", text.lower())]
+    out = " ".join(toks)
+    return re.sub(r"\b([a-h])\s+([1-8])\b", r"\1\2", out)
 PIECE_WORDS = {
     chess.KNIGHT: r"knight|конь|коня|\bot\b",
     chess.BISHOP: r"bishop|слон|\bfil\b",
@@ -45,7 +59,7 @@ class ChessGame:
 
     def parse(self, text):
         """Spoken text -> legal Move or None. Handles 'e2 to e4', 'Nf3', 'exd5', 'knight f3', castling."""
-        b, t = self.board, text.lower().translate(CYR)
+        b, t = self.board, spoken(text).translate(CYR)
         if re.search(r"castl|рокиров|rokirov", t):
             long = re.search(r"long|queen|длинн|uzun", t)
             return self._san("O-O-O" if long else "O-O")
@@ -66,7 +80,7 @@ class ChessGame:
             moves = [m for m in b.legal_moves
                      if m.to_square == dest and b.piece_type_at(m.from_square) == piece]
             return moves[0] if len(moves) == 1 else None
-        for tok in re.findall(r"[A-Za-z][A-Za-z0-9=+#-]*", text):   # SAN like Nf3, exd5, e4
+        for tok in re.findall(r"[A-Za-z][A-Za-z0-9=+#-]*", f"{text} {t}"):   # SAN like Nf3, exd5, e4 (also 'е4')
             for cand in (tok, tok[0].upper() + tok[1:], tok[0].lower() + tok[1:]):
                 mv = self._san(cand)
                 if mv:

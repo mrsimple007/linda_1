@@ -30,6 +30,8 @@ class Docs:
         self.store, self.model, self.folders = store, cfg["embed_model"], cfg["folders"]
         self.root, self.cache = pathlib.Path(root).expanduser(), None
         self.on_hits = None          # callback(hits) used by the UI galaxy
+        self.nomic = "nomic" in self.model                   # only nomic models want 'search_query: ' prefixes
+        self._checked = False
 
     def _read(self, p):
         s = p.suffix.lower()
@@ -44,7 +46,8 @@ class Docs:
     def _embed(self, texts, prefix):
         out = []
         for i in range(0, len(texts), 16):
-            out += ollama.embed(model=self.model, input=[prefix + t for t in texts[i:i + 16]]).embeddings
+            out += ollama.embed(model=self.model, input=[(prefix if self.nomic else "") + t for t in texts[i:i + 16]],
+                                keep_alive="24h").embeddings   # no ~1 s cold reload
         a = np.array(out, dtype=np.float32)
         return a / (np.linalg.norm(a, axis=1, keepdims=True) + 1e-9)
 
@@ -60,8 +63,22 @@ class Docs:
             self.store.x("INSERT OR REPLACE INTO doc_files VALUES (?,?,?,?)", (str(p), kind, st.st_mtime, st.st_size))
         self.cache = None
 
+    def _same_model(self):
+        """After switching embed_model the stored vectors are useless (other size/space): drop them once."""
+        if self._checked:
+            return
+        row = self.store.q("SELECT emb FROM chunks LIMIT 1")
+        if row and len(row[0][0]) // 4 != len(self._embed(["x"], "search_query: ")[0]):
+            print(f"[docs] embed model changed to {self.model}: re-indexing everything")
+            with self.store.lock:
+                self.store.x("DELETE FROM chunks")
+                self.store.x("DELETE FROM doc_files")
+            self.cache = None
+        self._checked = True
+
     def index(self):
         """Incremental: only new or changed files are (re)embedded."""
+        self._same_model()
         seen, n = set(), 0
         for kind in self.folders:
             for p in sorted((self.root / kind).rglob("*")):
@@ -93,7 +110,10 @@ class Docs:
         meta, mat = self.cache
         if mat is None:
             return []
-        scores = mat @ self._embed([query], "search_query: ")[0]
+        qv = self._embed([query], "search_query: ")[0]
+        if mat.shape[1] != qv.shape[0]:                  # old vectors from another model: wait for the re-index
+            return []
+        scores = mat @ qv
         hits = []
         for i in np.argsort(-scores):
             if scores[i] < min_score or len(hits) >= k:

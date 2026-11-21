@@ -53,7 +53,8 @@ RECALL_DESC = (
     "('what did I say about X', 'last time we talked about'); progress = work log by project; "
     "journal = diary entries; memory = quick notes saved with 'remember that...'; "
     "notes = semantic search of notes/papers/projects; capabilities = what Linda can do plus her improvement log; advice = goals, ideas, profile, tasks, recent work, journal, practice and songs (+ the person if named) for suggestions, plans and wishes; all = search everything. "
-    "query: words to filter by (names, relations, topics); empty lists everything. "
+    "query: words to filter by (names, relations, topics), IN ENGLISH (the data is stored in English, translate "
+    "Russian/Uzbek words; names stay as written); empty lists everything. "
     "A birthday row with match=partial is only a similar name, not the person asked about."
 )
 

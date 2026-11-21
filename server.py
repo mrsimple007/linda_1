@@ -527,6 +527,9 @@ def create_app(cfg, deps, start_background=True, synth=None, recorder=None):
             listener = Listener(cfg["audio"], speaker.is_speaking)
 
             def on_command(text, lang):                        # called from the ears thread
+                if time.time() < getattr(agent, "alice_until", 0):
+                    print(f"[ears] ignored during an Alice conversation: {text[:60]!r}")
+                    return                                     # the Mac mic heard the Station, not you
                 cur["lang"] = lang
                 if brain.cancel and not brain.cancel.is_set():
                     brain.interrupt()
@@ -654,6 +657,7 @@ def create_app(cfg, deps, start_background=True, synth=None, recorder=None):
         expected = os.getenv("ALICE_SECRET", "")
         if not expected or not hmac.compare_digest(secret, expected):
             return JSONResponse({"error": "not found"}, status_code=404)
+        agent.alice_until = time.time() + 45                # the Mac mic ignores what it hears meanwhile
         return alice_mod.handle(agent, payload, os.getenv("ALICE_OWNER_ID", ""))
 
 

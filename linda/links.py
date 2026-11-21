@@ -2,7 +2,7 @@
 (local embeddings, docs.py) and link them. Topic notes keep a 'Related:' line; the Telegram reply shows the links."""
 import pathlib, re
 
-MIN_SCORE = 0.68          # nomic-embed-text: unrelated text still scores ~0.55-0.62
+MIN_SCORE = {True: 0.68, False: 0.6}   # nomic-embed-text: unrelated ~0.55-0.62; bge-m3: unrelated ~0.45-0.55
 NEAR_TOP = 0.08           # keep only links close to the best one
 
 
@@ -28,7 +28,7 @@ def related(agent, text, exclude=(), k=3):
             if p.name.startswith("activity-") or p.name in skip or p.name in ("tasks.md", "README.md"):
                 continue
             top = h.score if top is None else top
-            if h.score < MIN_SCORE or h.score < top - NEAR_TOP:
+            if h.score < MIN_SCORE[bool(getattr(docs, "nomic", True))] or h.score < top - NEAR_TOP:
                 break
             if p not in out and p.exists():
                 out.append(p)
