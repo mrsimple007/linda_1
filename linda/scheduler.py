@@ -4,7 +4,9 @@ import datetime, time
 
 JOB_ACTIONS = {"morning": "morning_briefing", "practice": "practice_reminder",
                "evening": "evening_checkin", "birthdays": "birthdays",
-               "telegram_morning": "telegram_morning"}
+               "telegram_morning": "telegram_morning", "reminders": "reminders",
+               "client_followups": "client_followups", "weekly_review": "weekly_review"}
+PROACTIVE = {"reminders": "send_reminders", "client_followups": "send_followups", "weekly_review": "send_weekly_review"}
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 MAX_TRIES = 5          # telegram_morning: attempts per day (e.g. no internet right after the Mac wakes up)
 
@@ -33,6 +35,9 @@ def _run(agent, name):
             print("[scheduler] telegram_morning: Telegram is not configured")
             return True
         return briefing.send_morning(agent, tg) is not False
+    if name in PROACTIVE:                                  # Linda writes first (linda/skills/proactive.py)
+        from linda.skills import proactive
+        return getattr(proactive, PROACTIVE[name])(agent) is not False
     getattr(agent, "job_" + name)()
     return True
 
@@ -46,8 +51,8 @@ def run_due(cfg, store, agent, now, tries):
             ok = _run(agent, name)
         except Exception as e:
             print(f"[scheduler] {j['id']}: {e!r}")
-            ok = name != "telegram_morning"          # only the Telegram job is retried; the others never loop
-        if not ok:
+            ok = name not in ("telegram_morning", *PROACTIVE)   # Telegram jobs are retried; the others never loop
+        if not ok and name in ("telegram_morning", *PROACTIVE):
             tk = f"{j['id']}:{now.date()}"
             tries[tk] = tries.get(tk, 0) + 1
             if tries[tk] < MAX_TRIES:

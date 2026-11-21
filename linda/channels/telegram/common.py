@@ -15,7 +15,9 @@ COMMANDS = [("start", "Meet Linda"), ("today", "News, today's tasks and birthday
             ("client", "Add or show a client"), ("clients", "All clients and their progress"),
             ("news", "Latest headlines with links"), ("tasks", "Your open tasks"),
             ("birthdays", "All saved birthdays"), ("plans", "Add today's plans"), ("idea", "Save an idea"),
-            ("goal", "Save a goal"), ("done", "Mark a task done"), ("notes", "Everything I remember")]
+            ("goal", "Save a goal"), ("done", "Mark a task done"), ("notes", "Everything I remember"),
+            ("reminders", "Deadlines coming up and overdue"), ("followups", "Clients waiting for action"),
+            ("review", "Weekly review")]
 
 S = {
     "en": {"morning": "Good morning, {user}", "hello": "Hello, {user}", "intro": "Linda is here. Write me today's plans, one per line, and I'll save "

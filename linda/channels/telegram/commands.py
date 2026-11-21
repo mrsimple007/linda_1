@@ -191,6 +191,13 @@ def _command(agent, tg, cmd, rest):
     if cmd in ("client", "clients", "client_undo"):
         from linda.business import clients
         return clients.telegram_command(agent, tg, cmd, rest)
+    if cmd in ("reminders", "followups", "review"):
+        from linda.skills import proactive
+        if cmd == "reminders":
+            return proactive.send_reminders(agent, tg, quiet=False)
+        if cmd == "followups":
+            return proactive.send_followups(agent, tg, quiet=False)
+        return proactive.send_weekly_review(agent, tg)
     if cmd == "news":
         return _news(agent, tg)
     if cmd == "tasks":

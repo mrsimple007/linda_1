@@ -117,7 +117,10 @@ def _converse(agent, tg, text, in_window):
                 ok = True
             else:
                 brain.cancel = threading.Event()
-                brain.extra_rules = TG_RULES + (" " + PLAN_HINT if in_window else "")
+                from linda.skills import proactive
+                week = proactive.week_window(agent)              # replying to the Sunday weekly review
+                brain.extra_rules = (TG_RULES + (" " + PLAN_HINT if in_window else "")
+                                     + (" " + proactive.WEEK_HINT if week else ""))
                 brain.read_only = bool(reference.MEM_ASK.search(text))       # a question can never trigger a save
                 try:
                     ok = brain._agent_loop(text)
@@ -140,6 +143,8 @@ def _converse(agent, tg, text, in_window):
                 finally:
                     brain.extra_rules = ""
                     brain.read_only = False
+                if week and ok:
+                    proactive.close_week_window(agent)          # one reply answers the review question
     except Exception as e:
         print("[telegram brain]", repr(e)[:200])
         return False

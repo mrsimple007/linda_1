@@ -76,7 +76,8 @@ def _abs(p):
 
 
 JOB_ACTIONS = {"birthdays": "birthdays", "morning": "morning_briefing", "practice": "practice_reminder",
-               "evening": "evening_checkin"}
+               "evening": "evening_checkin", "telegram_morning": "telegram_morning", "reminders": "reminders",
+               "client_followups": "client_followups", "weekly_review": "weekly_review"}
 
 
 def _fix_schedule(jobs):
