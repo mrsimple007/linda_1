@@ -10,7 +10,7 @@ def _think(agent, text):
     from linda.telegram_linda.briefing import muted
     brain = agent.brain
     with muted(agent, text) as mute:
-        if agent.chess and agent.chess_turn(text):           # a game in progress: moves, "подсказка", "стоп шахматы"
+        if agent.chess and agent.chess_turn(text, cloud=False):           # a game in progress: moves, "подсказка", "стоп шахматы"
             return " ".join(mute.lines)
         if fastpath.try_fast(agent, text, lambda c: None):
             return " ".join(mute.lines)
@@ -35,6 +35,7 @@ def handle(agent, payload, owner_id):
     if sess.get("new") or not text:
         return {**base, "response": {"text": "Линда на связи. Слушаю.", "end_session": False}}
     if text.lower() in ("хватит", "выход", "стоп"):
+        agent.alice_until = time.time() + 120                # session over: the Mac listens again in 2 minutes
         return {**base, "response": {"text": "Пока!", "end_session": True}}
     sid = sess.get("session_id") or ""
     names = [str(agent.cfg.get("user_name") or "")]
@@ -45,8 +46,12 @@ def handle(agent, payload, owner_id):
             LATE.pop(sid, None)
             return _reply(base, ans, names)
         return _reply(base, "Ещё думаю. Спроси «ну что» через пару секунд.")
+    print(f"[alice] heard: {text[:120]!r}")
+    if any(not f.done() for f in BUSY):                     # still answering the last one: don't queue behind it
+        return _reply(base, "Ещё отвечаю на прошлый вопрос. Скажи «ну что» через пару секунд.")
     t0 = time.time()
     fut = POOL.submit(_think, agent, text)
+    BUSY[:] = [fut]
     try:
         answer = fut.result(timeout=DEADLINE)
         print(f"[alice] {time.time() - t0:.2f}s")
@@ -57,6 +62,7 @@ def handle(agent, payload, owner_id):
         def later(f):
             try:
                 slot["answer"] = f.result()
+                agent.alice_until = max(getattr(agent, "alice_until", 0), time.time() + 120)
                 print(f"[alice late] {time.time() - t0:.2f}s")
                 agent.tg.send(slot["answer"])
             except Exception as e:
@@ -68,6 +74,7 @@ def handle(agent, payload, owner_id):
 
 DEADLINE = 2.6                       # Alice waits ~3 s, the tunnel needs the rest
 LATE = {}                            # session_id -> {"answer": ...} for answers that missed the deadline
+BUSY = []                            # the answer being worked on
 AGAIN = re.compile(r"^\W*(ну\s+)?(что|и что|как|ну|готово|ответ|и)\W*$|ну что|что там|ответ", re.I)
 LAT = {"sh": "ш", "ch": "ч", "yo": "ё", "yu": "ю", "ya": "я", "ts": "ц", "kh": "х", "zh": "ж", "o'": "у", "g'": "г",
        "a": "а", "b": "б", "c": "к", "d": "д", "e": "е", "f": "ф", "g": "г", "h": "х", "i": "и", "j": "ж", "k": "к",

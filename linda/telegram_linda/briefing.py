@@ -891,6 +891,10 @@ def _remember_turn(agent, brain, text, reply, changes):
 
 def _free_text(agent, tg, text):
     t = S[_lang(agent)]
+    from .. import smart_home
+    said = smart_home.quick(agent, text)
+    if said:
+        return tg.send(said)
     in_window = time.time() < getattr(agent, "plans_until", 0)
     tg.typing()
     if NEWS_ASK.search(text) and len(text.split()) <= 14:

@@ -594,7 +594,7 @@ class Agent(PracticeMixin, QuizMixin, TaskMixin, DocsMixin, ReviewMixin):
         pgn = str(chess.pgn.Game.from_board(g.board))
         self.store.log_chess(g.user_white, self.cfg["chess"]["skill_level"], result, len(g.board.move_stack), pgn)
 
-    def chess_turn(self, text):
+    def chess_turn(self, text, cloud=True):
         low, g = text.lower(), self.chess
         if any(w in low for w in CHESS_STOP):
             self._log_chess("abandoned")
@@ -615,7 +615,7 @@ class Agent(PracticeMixin, QuizMixin, TaskMixin, DocsMixin, ReviewMixin):
         if any(w in low for w in CHESS_HINT):
             self.k("chess_hint", move=speak_move(g.board, g.engine_move(), self.lang))
             return True
-        mv = g.parse(text) or self._gemini_move(text)
+        mv = g.parse(text) or (self._gemini_move(text) if cloud else None)    # Alice can't wait for Gemini
         if mv is None:
             self.k("chess_illegal")
             return True

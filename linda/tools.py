@@ -142,6 +142,11 @@ TABLE = [
  "chess games. Use for counts, totals, 'latest', 'how many', per-period or per-person questions. Not for saving.",
  {"question": (S, "the question in full"), "domain": (S, "finance, tasks, practice")}, ["question", "domain"], {}),
 
+("smart_home", "Control the user's smart home devices (Yandex «Дом с Алисой»): lamps / lights on, off, brightness, "
+ "warm or cold white, colour; action=list names the devices.",
+ {"action": (S, "on, off, brightness, warm, cold, color or list"),
+  "device": (S, "device name or room as the user said it; empty = all lights"),
+  "value": (S, "brightness 1-100, or the colour name")}, ["action"], {}),
 ("bot_stats", "Answer ANY question about the user's own Telegram bots (Simple Quizzer, Simple Slides): new users, "
  "active users, files/quizzes/presentations made, payments, groups, per day/month/year, comparisons. Runs a read-only "
  "SQL query on the bots' database. Pass the question in full.",
@@ -757,6 +762,7 @@ SPECIAL = {
     "task_done": _task_done, "song_add": _song_add,
     "finance_report": _finance_report,
     "bot_stats": lambda ag, a, t: _bot_stats().bot_stats(ag, a, t),
+    "smart_home": lambda ag, a, t: __import__("linda.smart_home", fromlist=["tool"]).tool(ag, a, t),
     "client_add": lambda ag, a, t: _clients().client_add(ag, a, t),
     "client_update": lambda ag, a, t: _clients().client_update(ag, a, t),
     "client_info": lambda ag, a, t: _clients().client_info(ag, a, t),

@@ -50,6 +50,11 @@ def normalize(text):
 
 
 def try_fast(agent, text, set_lang=lambda c: None):
+    from . import smart_home
+    said = smart_home.quick(agent, text)                       # "выключи свет": no LLM, no quota
+    if said:
+        agent.say(said)
+        return True
     t = normalize(text)
     if len(t.split()) > 7:
         return False

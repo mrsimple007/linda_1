@@ -30,6 +30,7 @@ EXTRA = [
      r"\bstats?\b|active|subscri|premium|referat", {"bot_stats"}),
     (r"client|klient|mijoz|клиент|\bTLS\b|expa\w{2,3}io|proton|videx|viza\b|visa\b|passport|pasport|паспорт",
      CLIENT_TOOLS),
+    (r"свет|ламп|люстр|light|lamp|chiroq|умн\w* дом|smart home|яркост|brightness", {"smart_home"}),
     (r"timer|remind|alarm|таймер|напомни|taymer|eslat", {"timer"}),
     (r"volume|louder|quieter|mute|screenshot|lock|громк|тише|громче|ovoz", {"volume", "mac"}),
     (r"\bopen\b|launch|открой|\boch\b", {"open_app"}),
@@ -93,13 +94,24 @@ class Provider:
         return self.enabled and time.time() >= self.cool_until
 
     def cool(self, e):
-        if getattr(e, "status_code", 0) == 404:        # model missing: don't retry it all day
-            self.cool_until = time.time() + 86400
+        """Rest a failing provider so the next question doesn't wait for it again."""
+        code, msg = getattr(e, "status_code", 0), str(e)
+        if code == 404:                                  # model missing: don't retry it all day
+            wait = 86400
+        elif code in (400, 413):                         # this request was the problem, not the provider
             return
-        if getattr(e, "status_code", 0) == 400:
-            return
+        elif code == 429 or "RateLimit" in repr(e) or "rate limit" in msg.lower():
+            m = re.search(r"try again in (?:(\d+)h)?(?:(\d+)m)?(\d+(?:\.\d+)?)s", msg)
+            asked = (int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + float(m.group(3))) if m else 0
+            daily = "per day" in msg or "TPD" in msg or "RPD" in msg
+            wait = max(asked, 900 if daily else 20)      # a used-up daily quota won't come back in seconds
+        elif "Timeout" in repr(e) or "timed out" in msg.lower():
+            wait = 120
+        else:
+            wait = 30
+        self.cool_until = time.time() + wait
+        print(f"[{self.name}] resting {wait / 60:.0f} min" if wait >= 120 else f"[{self.name}] resting {wait:.0f}s")
 
-        
     def chat(self, msgs, tool_defs, effort="low", temp=0.3, timeout=None):
         kw = dict(model=self.model, messages=msgs, max_tokens=2500, temperature=temp)
         if tool_defs:

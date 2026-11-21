@@ -27,7 +27,7 @@ REVERSIBLE = {
     "remember", "save_note", "song_add", "task_add", "task_done", "timer",
     "tune", "analyze_playing", "chess", "quiz", "volume",
 "telegram_send", "log_progress", "save_reference", "read_reference",
-"client_add", "client_update", "client_undo",
+"client_add", "client_update", "client_undo", "smart_home",
 
 }
 

@@ -657,7 +657,9 @@ def create_app(cfg, deps, start_background=True, synth=None, recorder=None):
         expected = os.getenv("ALICE_SECRET", "")
         if not expected or not hmac.compare_digest(secret, expected):
             return JSONResponse({"error": "not found"}, status_code=404)
-        agent.alice_until = time.time() + 45                # the Mac mic ignores what it hears meanwhile
+        # Mac mic off while an Alisa conversation is open: Yandex doesn't say when it closes, so every request
+        # keeps it off for 5 more minutes; 'хватит' ends it sooner (alice_linda.handle)
+        agent.alice_until = time.time() + 300
         return alice_mod.handle(agent, payload, os.getenv("ALICE_OWNER_ID", ""))
 
 

@@ -450,6 +450,10 @@ class Brain:
                 self._spoke = True
                 return True
             quick = QUICK - {"telegram_send"} if think else QUICK      # in think mode the model says what it sent
+            if any(n in ("chess", "quiz") for n, _ in outs):  # a game started: its own text is the answer
+                ag.say(" ".join(last))
+                self._spoke = True
+                return True
             if not self.extra_rules and last and all(n in quick for n, _ in outs if n != "recall"):
                 ag.say(" ".join(last))
                 self._spoke = True
