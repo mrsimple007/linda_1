@@ -100,13 +100,15 @@ TABLE = [
     ("web_answer", "Answer a question that needs CURRENT information from the web (news, sports, prices, 'latest', 'today').",
      {"query": (S, "the question"), **TG}, ["query"], {}),
     ("save_note", "Save to a personal file: profile = lasting facts about the user; goals = targets; ideas = thoughts and "
-     "project ideas. Not course/project facts (save_reference), dated tasks (task_add) or diary (journal_add).",
-     {"file": (S, "profile, goals or ideas"),
+     "project ideas; decisions = a choice the user made ('we decided', 'I chose', 'going with', 'decided not to'), "
+     "with the reason if given. Not course/project facts (save_reference), dated tasks (task_add) or diary (journal_add).",
+     {"file": (S, "profile, goals, ideas or decisions"),
       "text": (S, "the note in full, with 'it'/'that' replaced by what they mean; never the instruction itself"),
-      "section": (S, "optional heading such as Yearly, Monthly, Weekly, Music")}, ["file", "text"], {}),
+      "section": (S, "optional heading such as Yearly, Monthly, Weekly, Music; for decisions the project name")},
+     ["file", "text"], {}),
     ("complete_goal", "Mark a goal in goals.md as done.", {"text": (S, "a few words from the goal")}, ["text"], {}),
-    ("remove_note", "Delete an outdated or wrong line from profile, goals or ideas.",
-     {"file": (S, "profile, goals or ideas"), "text": (S, "words from the line to delete")}, ["file", "text"], {}),
+    ("remove_note", "Delete an outdated or wrong line from profile, goals, ideas or decisions.",
+     {"file": (S, "profile, goals, ideas or decisions"), "text": (S, "words from the line to delete")}, ["file", "text"], {}),
     ("log_progress", "Record finished work that matches NO open task (if one matches, use task_done). Use the exact name "
      "of the ongoing project it belongs to by meaning; new_project=true only for clearly new work. One sentence in English.",
      {"project": (S, "exact name of an ongoing project, or the new project's name"),
@@ -124,8 +126,9 @@ TABLE = [
      "Removes the most recent ones (count), or the most recent ones of one date.",
      {"count": (I, "how many of the latest sessions to remove, default 1"),
       "date": (S, "YYYY-MM-DD, only if the user names a day")}, [], {}),
-    ("read_note", "Read out the user's saved profile, goals or ideas, or answer questions about them ('what are my goals').",
-     {"file": (S, "profile, goals or ideas")}, ["file"], {}),
+    ("read_note", "Read out the user's saved profile, goals, ideas or decisions, or answer questions about them "
+     "('what are my goals', 'what did we decide about X').",
+     {"file": (S, "profile, goals, ideas or decisions")}, ["file"], {}),
     ("birthday_lookup", "Tell when a specific person's birthday is. 'my birthday' means the user's own.",
      {"name": (S, "person's name, a relation such as 'brother', or 'me'")}, [], {}),
     ("save_reference", "Save information to a topic note (data/notes/<topic>.md): a course outline, lesson list, schedule, "
@@ -560,7 +563,7 @@ def _mem(name):
 
 def _read_note(agent, a, text):
     f = str(a.get("file") or "goals").lower()
-    f = f if f in ("profile", "goals", "ideas") else "goals"
+    f = f if f in ("profile", "goals", "ideas", "decisions") else "goals"
     p = agent.data_dir / f"{f}.md"
     lines = []
     if p.exists():
@@ -843,11 +846,14 @@ KIND_ALIAS = {"people": "all", "family": "all", "friends": "all", "relatives": "
               "projects": "progress", "diary": "journal", "note": "notes", "remember": "memory", "reminders": "memory",
               "yesterday": "day", "today": "day", "activity": "day", "date": "day"}
 DAY_STORES = {"journal", "progress", "practice", "tasks"}
-ADVICE_STORES = {"goals", "ideas", "profile", "tasks", "progress", "journal", "practice", "songs"}
+ADVICE_STORES = {"goals", "ideas", "profile", "decisions", "tasks", "progress", "journal", "practice", "songs"}
 LOOKUP = re.compile(r"\b(when|what|who|where|which|how many|how old|tell me|do you know|did i|yesterday|today|"
                     r"birthdays?|tasks?|goals?|songs?|brother|sister|mother|father|friend|cousin|uncle|aunt|"
                     r"aka|uka|opa|qachon|kim|nima|kecha|bugun)\b|когда|кто|что|где|сколько|вчера|сегодня|брат|сестр|друг",
                     re.I)
+CONVO = re.compile(r"\b(did i (?:say|tell|mention|ask)|i (?:said|told you|mentioned)|we (?:talked|discussed|spoke|decided)|"
+                   r"last time|earlier (?:today|you said)|you (?:said|told me)|our (?:chat|conversation)|"
+                   r"aytgan edim|gaplashgan|gaplash\w*|aytdim)\b|говорил|обсужда|разговор|ты сказал", re.I)
 PROGRESS_INTENT = re.compile(
     r"\bimprov\w*|\bprogress\b|capabilit\w*|what can you do|worked on|work on|what have i (?:done|worked|improved)|"
     r"changelog|умеешь|можешь|прогресс|улучш|сделал|qila olasan|yaxshilad|ishlad", re.I)
@@ -1030,6 +1036,8 @@ def memory_index(agent):
         "practice: sessions by date",
         f"profile / goals / ideas lines: {n(lambda: _file_lines(agent, 'profile'))} / "
         f"{n(lambda: _file_lines(agent, 'goals'))} / {n(lambda: _file_lines(agent, 'ideas'))}",
+        f"decisions: {n(lambda: _file_lines(agent, 'decisions'))} (recall kind='decisions')",
+        "past conversations with Linda: searchable by meaning (recall kind='conversations')",
         f"journal: {len(days)} days" + (f", latest {days[-1]}" if days else ""),
         f"quick notes ('remember that...'): {n(lambda: st.notes(200))} (recall kind='memory')",
         f"reference notes (full text via read_reference): {reference.names(agent) or 'none'}",
@@ -1099,7 +1107,7 @@ def _gather(agent, kind, q, user_text, use_text=True):
             hits_text.extend(rows if toks else [])
             return rows
         add("remembered", memo)
-    for f in ("profile", "goals", "ideas"):
+    for f in ("profile", "goals", "ideas", "decisions"):
         if want(f):
             def sect(f=f):
                 every = _file_lines(agent, f)
@@ -1239,6 +1247,10 @@ def _gather(agent, kind, q, user_text, use_text=True):
             return {d: _lines(_diary(agent, d, 8), toks, 6)[0] for d in days}
         add("journal", journal)
 
+    if kind == "conversations" or (kind == "all" and CONVO.search(both)):
+        from . import history
+        add("past_conversations", lambda: history.search(agent, qq or both, 5) or None)
+
     if kind in ("all", "notes") and toks and agent.docs and not dayq:
         add("notes", lambda: [{"file": pathlib.Path(h.path).name, "text": h.text[:600]}
                               for h in agent.docs.search(qq, 10, None)
@@ -1317,7 +1329,7 @@ def prefetch(agent, text, budget=1500, think=False):
             return ""
         print(f"[prefetch think] {len(res)} chars: {res[:120]}")
         return res
-    if not (LOOKUP.search(text) or _mentions_person(agent, text)):
+    if not (LOOKUP.search(text) or CONVO.search(text) or text.rstrip().endswith("?") or _mentions_person(agent, text)):
         return ""
     try:
         out = _gather(agent, "all", "", text)

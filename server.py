@@ -244,31 +244,9 @@ _TURN = {"replies": [], "tools": []}                          # what happened du
 
 
 def log_turn(cfg, text, lang, tools_used, reply):
-    """Remember what was asked and done: table `history` in linda.db + data/journal/activity-YYYY-MM-DD.md
-    (the journal folder is indexed, so "what did I ask yesterday?" can be answered by notes search)."""
-    import json, sqlite3
-    now = datetime.datetime.now()
-    try:
-        db = pathlib.Path(cfg["db_path"])
-        db = db if db.is_absolute() else ROOT / db
-        con = sqlite3.connect(db, timeout=10)
-        try:
-            con.execute("create table if not exists history(id integer primary key, ts text, lang text, "
-                        "user_text text, tools text, reply text)")
-            con.execute("insert into history(ts, lang, user_text, tools, reply) values (?,?,?,?,?)",
-                        (now.isoformat(timespec="seconds"), lang, text, json.dumps(tools_used), reply))
-            con.commit()
-        finally:
-            con.close()
-        folder = data_path(cfg) / "journal"
-        folder.mkdir(parents=True, exist_ok=True)
-        f = folder / f"activity-{now:%Y-%m-%d}.md"
-        if not f.exists():
-            f.write_text(f"# Activity {now:%Y-%m-%d}\n\n", encoding="utf-8")
-        with f.open("a", encoding="utf-8") as fh:
-            fh.write(f"- {now:%H:%M} **You:** {text}\n  - tools: {', '.join(tools_used) or '-'}\n  - **Linda:** {reply}\n")
-    except Exception as e:
-        print("[history] could not save:", repr(e))
+    """Remember what was asked and done (linda/history.py: linda.db `history` + journal/activity-*.md)."""
+    from linda import history
+    history.log_turn(cfg, text, lang, tools_used, reply, channel="voice")
 
 
 def recent_history(cfg, n=8):

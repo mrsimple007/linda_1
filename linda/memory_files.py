@@ -10,7 +10,7 @@ except ImportError:                                           # standalone use
     ROOT = pathlib.Path(".")
 
 _dir = None
-FILES = {"profile": "profile.md", "goals": "goals.md", "ideas": "ideas.md"}
+FILES = {"profile": "profile.md", "goals": "goals.md", "ideas": "ideas.md", "decisions": "decisions.md"}
 DEFAULT = "Added by Linda"
 PHRASES = {
     "saved":   {"en": "Saved.", "ru": "Сохранила.", "uz": "Saqlandi."},
@@ -34,7 +34,8 @@ def _path(file):
 
 def _kind(v):
     v = str(v or "").lower()
-    return "ideas" if v.startswith("idea") else "goals" if v.startswith("goal") else "profile" if v.startswith("profile") else None
+    return ("ideas" if v.startswith("idea") else "goals" if v.startswith("goal") else "profile" if v.startswith("profile")
+            else "decisions" if v.startswith("decision") else None)
 
 
 def _read(file):
@@ -122,6 +123,9 @@ def save(file, text, section=None):
                f"- **Added:** {datetime.date.today().isoformat()}", "", text]
     elif file == "goals":
         new = [f"- [ ] {text}"]
+    elif file == "decisions":                         # section = the project; the date says when it was decided
+        new = [f"- {datetime.date.today().isoformat()} · {text}"]
+        section = section or "General"
     else:
         new = [f"- {text}"]
     _write(file, _insert(lines, section, new))

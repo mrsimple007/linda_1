@@ -164,7 +164,7 @@ def where_saved(agent, name, args):
             return rel(agent, p) if p.exists() else ""
         if name == "save_note":
             f = str(args.get("file") or "").lower()
-            return rel(agent, d / f"{f}.md") if f in ("profile", "goals", "ideas") else ""
+            return rel(agent, d / f"{f}.md") if f in ("profile", "goals", "ideas", "decisions") else ""
         if name == "save_reference":
             p = find(agent, args.get("topic") or "", loose=False)
             return rel(agent, p) if p else ""

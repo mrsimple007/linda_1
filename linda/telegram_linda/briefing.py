@@ -731,7 +731,9 @@ TG_RULES = (                     # always sent; rules for other tools travel wit
     "reminders -> remember. A message saying work was done ALWAYS ends in a tool call, never praise alone. "
     "A QUESTION is a read: answer from the stored data, save nothing, and answer completely (every matching person or "
     "item with the details asked, one per line). After SAVING reply with ONE short friendly line; wishes and greetings "
-    "are written in full. Never say 'all set' before the thing itself is saved. Call them 'tasks' (never 'to-do list')."
+    "are written in full. Never say 'all set' before the thing itself is saved. Call them 'tasks' (never 'to-do list'). "
+    "A decision ('we decided', 'I chose', 'going with', 'decided not to') -> save_note file=decisions, section = the "
+    "project, text = the decision + reason. 'What did I say / we discuss about X' -> recall kind=conversations."
 )
 
 
@@ -756,6 +758,8 @@ def _tool_lines(brain, agent=None):
     for name, args, res in brain.tool_log:
         if name in LOG_ICONS and not res.lower().startswith("error"):
             icon, label = LOG_ICONS[name]
+            if name == "save_note" and str(args.get("file") or "").lower().startswith("decision"):
+                icon, label = "⚖️", "Decision"
             proj = f" ({esc(args['project'])})" if name == "log_progress" and args.get("project") else ""
             if name == "save_reference":
                 shown = f"{args.get('topic') or 'notes'}: {len(str(args.get('text') or ''))} characters saved in full"
@@ -765,8 +769,29 @@ def _tool_lines(brain, agent=None):
             where = reference.where_saved(agent, name, args)
             if where:
                 line += f"\n   📁 <code>{esc(where)}</code>"
+            line += _related(agent, name, args, where)
             out.append(line)
     return out
+
+LINKED = {"save_reference", "save_note", "log_progress", "journal_add"}
+
+
+def _related(agent, name, args, where):
+    """'\n   🔗 data/notes/x.md · data/projects/y.md': saved files about the same thing ('' if none)."""
+    if agent is None or name not in LINKED:
+        return ""
+    from .. import links
+    path = agent.data_dir / where[5:] if where.startswith("data/") else None
+    found = links.related(agent, args.get("text") or "", exclude=[path] if path else [])
+    if not found:
+        return ""
+    if path is not None and name == "save_reference":
+        try:
+            links.annotate(agent, path, found)
+        except Exception as e:
+            print("[links annotate]", repr(e)[:120])
+    return "\n   🔗 " + " · ".join(f"<code>{esc(reference.rel(agent, p))}</code>" for p in found)
+
 
 from .. import providers as _providers
 _providers.TOOL_RULES.update({
@@ -844,6 +869,7 @@ def _converse(agent, tg, text, in_window):
                 for x in after if tools._norm(x) not in b]
     changes += _tool_lines(brain, agent)
     brain.history = (brain.history + [("user", text), ("model", reply)])[-2 * brain.cfg["brain"]["history_turns"]:]
+    _remember_turn(agent, brain, text, reply, changes)
     if getattr(agent, "card_sent", False) and not changes:
         return True                                          # the card IS the answer; skip "I'll check that for you."
     if GREET_WORDS.search(text):
@@ -852,6 +878,15 @@ def _converse(agent, tg, text, in_window):
         tg.send_styled(S[_lang(agent)]["hint_title"], [("", changes)] if changes else [],
                        icon="💬", intro=reply)
     return True
+
+
+def _remember_turn(agent, brain, text, reply, changes):
+    """Keep the chat (searchable later) and re-index files this turn changed."""
+    from .. import history
+    used = [n for n, _, _ in brain.tool_log]
+    shown = reply + (" | " + " | ".join(changes) if changes else "")
+    history.log_turn(agent.cfg, text, getattr(agent, "lang", "en"), used, shown, channel="telegram")
+    history.reindex(agent)                                   # the chat log itself + any file saved this turn
 
 
 def _free_text(agent, tg, text):

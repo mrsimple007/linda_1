@@ -42,14 +42,15 @@ EXTRA = [
     (r"remove|delete|forget|erase|удал|забудь|o'?chir", {"remove_note", "complete_goal", "delete_birthday"}),
 ]
 
-RECALL_KINDS = ["all", "day", "birthdays", "tasks", "songs", "practice", "profile", "goals", "ideas",
-                "progress", "journal", "notes", "memory", "capabilities", "advice"]
+RECALL_KINDS = ["all", "day", "birthdays", "tasks", "songs", "practice", "profile", "goals", "ideas", "decisions",
+                "conversations", "progress", "journal", "notes", "memory", "capabilities", "advice"]
 RECALL_DESC = (
     "Read the user's saved data. Call it before answering questions about their data and before saving, changing or "
     "deleting anything. kind: "
     "day = everything for one date (journal, work log, practice, finished tasks): use it for 'yesterday', 'today' or a date; "
     "birthdays = people with date and relation (brother, friend...); tasks = open tasks; songs; practice; "
-    "profile / goals / ideas = the user's own files; progress = work log by project; "
+    "profile / goals / ideas / decisions = the user's own files; conversations = past chats with Linda by meaning "
+    "('what did I say about X', 'last time we talked about'); progress = work log by project; "
     "journal = diary entries; memory = quick notes saved with 'remember that...'; "
     "notes = semantic search of notes/papers/projects; capabilities = what Linda can do plus her improvement log; advice = goals, ideas, profile, tasks, recent work, journal, practice and songs (+ the person if named) for suggestions, plans and wishes; all = search everything. "
     "query: words to filter by (names, relations, topics); empty lists everything. "
