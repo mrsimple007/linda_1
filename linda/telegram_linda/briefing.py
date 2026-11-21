@@ -37,6 +37,7 @@ FEEDS = ["https://feeds.bbci.co.uk/news/world/rss.xml", "https://feeds.bbci.co.u
 TG_WORDS = re.compile(r"telegram|\bsend\b|отправ|пришли|yubor|jo'?nat", re.I)
 PLAN_WORDS = re.compile(r"\bplans?\b|\btasks?\b|\bto-?do\b|планы?\b|задач|rejalar|vazifa", re.I)
 COMMANDS = [("start", "Meet Linda"), ("today", "News, today's tasks and birthdays"),
+            ("client", "Add or show a client"), ("clients", "All clients and their progress"),
             ("news", "Latest headlines with links"), ("tasks", "Your open tasks"),
             ("birthdays", "All saved birthdays"), ("plans", "Add today's plans"), ("idea", "Save an idea"),
             ("goal", "Save a goal"), ("done", "Mark a task done"), ("notes", "Everything I remember")]
@@ -55,7 +56,7 @@ S = {
            "nothing": "Nothing to save in that one.", "no_tasks": "No open tasks. Enjoy the day!",
            "welcome": "This is Linda, your personal assistant. I live on your Mac, and now I'm here in Telegram too.",
            "can": "What I can do here", "just": "Or just write to me",
-           "can_lines": ["/today: news, today's tasks and birthdays", "/news: fresh headlines with links", "/tasks: your open tasks",
+           "can_lines": ["/today: news, today's tasks and birthdays", "/client: add or show a client, /clients: all clients", "/news: fresh headlines with links", "/tasks: your open tasks",
                          "/birthdays: every saved birthday", "/plans: add today's plans, one per line",
                          "/idea and /goal: save them in one step"],
            "just_line": "An idea, a goal, a fact about you, a task, a diary thought, or what you worked on. "
@@ -76,7 +77,7 @@ S = {
            "nothing": "Тут нечего сохранять.", "no_tasks": "Открытых задач нет. Хорошего дня!",
            "welcome": "Это Линда, твой личный помощник. Я живу на твоём Mac, а теперь и здесь, в Telegram.",
            "can": "Что я умею здесь", "just": "Или просто напиши мне",
-           "can_lines": ["/today: новости, задачи и дни рождения на сегодня", "/news: свежие новости со ссылками", "/tasks: открытые задачи",
+           "can_lines": ["/today: новости, задачи и дни рождения на сегодня", "/client: добавить или показать клиента, /clients: все клиенты", "/news: свежие новости со ссылками", "/tasks: открытые задачи",
                          "/birthdays: все дни рождения", "/plans: планы на сегодня, каждый с новой строки",
                          "/idea и /goal: сохранить в один шаг"],
            "just_line": "Идею, цель, факт о тебе, задачу, мысль для дневника или что ты сделал. "
@@ -97,7 +98,7 @@ S = {
            "nothing": "Bunda saqlaydigan narsa yo'q.", "no_tasks": "Ochiq vazifalar yo'q. Kuningiz xayrli o'tsin!",
            "welcome": "Bu Linda, sizning shaxsiy yordamchingiz. Men Mac'ingizda yashayman, endi Telegramda ham.",
            "can": "Bu yerda nima qila olaman", "just": "Yoki shunchaki yozing",
-           "can_lines": ["/today: yangiliklar, bugungi vazifalar va tug'ilgan kunlar", "/news: havolali so'nggi yangiliklar", "/tasks: ochiq vazifalar",
+           "can_lines": ["/today: yangiliklar, bugungi vazifalar va tug'ilgan kunlar", "/client: mijoz qo'shish yoki ko'rish, /clients: barcha mijozlar", "/news: havolali so'nggi yangiliklar", "/tasks: ochiq vazifalar",
                          "/birthdays: barcha tug'ilgan kunlar", "/plans: bugungi rejalar, har biri yangi qatorda",
                          "/idea va /goal: bir qadamda saqlash"],
            "just_line": "G'oya, maqsad, o'zingiz haqingizda fakt, vazifa, kundalik fikr yoki nima qilganingiz. "
@@ -724,7 +725,14 @@ TG_RULES = (
     "finished task, with ids from the open tasks list; 'all tasks are done except X' = task_done for every open task "
     "except X; ideas -> save_note file=ideas; goals -> save_note file=goals; lasting facts about the user -> "
     "save_note file=profile; feelings or diary -> journal_add; work already finished that matches no open task -> "
-    "log_progress. Never task_add something already open, and never also log_progress or journal a task you just "
+    "log_progress; the user's AGENCY CLIENTS (people going to Germany) -> client_add for a new client or pasted client "
+    "details (also partial ones, e.g. only an email and password: save them, never ask for more), client_update for "
+    "steps/fields of an existing client, client_info / client_list for questions about them, never task_add, save_note "
+    "or remember for them. OPPORTUNITIES (scholarships, grants, exchange programmes, competitions, calls for "
+    "applications): save_reference with topic 'Scholarships' (one shared file; use 'Opportunities' for things that are "
+    "not scholarships) and the full text; if the user wants to apply or take part, ALSO task_add titled "
+    "'Apply: <programme name> (deadline <date and time>)' with due = the application deadline as YYYY-MM-DD. "
+    "Never answer 'all set' before the thing itself has been saved. Never task_add something already open, and never also log_progress or journal a task you just "
     "closed. A question or chat is answered from stored data and nothing is saved. After SAVING, reply with ONE "
     "short friendly line. A QUESTION gets a complete answer: every matching person or item, with the details asked for "
     "(dates, relations), one per line if there are several. Wishes, greetings and messages are written in full."
@@ -1002,6 +1010,9 @@ def _command(agent, tg, cmd, rest):
         return _welcome(agent, tg)
     if cmd == "today":
         return _today(agent, tg)
+    if cmd in ("client", "clients", "client_undo"):
+        from . import clients
+        return clients.telegram_command(agent, tg, cmd, rest)
     if cmd == "news":
         return _news(agent, tg)
     if cmd == "tasks":
@@ -1253,8 +1264,56 @@ def finance_gate(agent, tg, t):
 
 TX_ENTRY = re.compile(r"^\s*(?:[a-zа-я]{1,10}\s*[:,]\s*)?[+\-\u2212\u2013\u2014]\s*\d", re.I)
 
+PAIR_WINDOW = 300                 # seconds: "I want to apply for this" waits this long for the thing it means
+POINTER = re.compile(r"\b(this|that|it|these|bu|shu|buni|shuni|bunga|shunga|это|этот|эту|этого|на это)\b", re.I)
+
+
+def _is_pointer(t):
+    """A short message that points at something not sent yet: 'I wanna apply for this', 'save this', 'buni saqla'."""
+    return (len(t) <= 80 and "\n" not in t and not t.startswith("/") and bool(POINTER.search(t))
+            and bool(ACT.search(t)) and not DONE_PAST.search(t) and not t.rstrip().endswith("?")
+            and not EMAILISH.search(t))
+
+
+EMAILISH = re.compile(r"@|https?://|\d{3,}")
+ACT = re.compile(r"\b(apply|register|sign up|enrol+|participate|save|keep|note|look at|check|read|"
+                 r"topshir\w*|ariza|ro'?yxatdan|qatnash\w*|saqla\w*|ko'?rib|o'qib|"
+                 r"подать|подам|запиш\w*|сохрани\w*|участв\w*|посмотри)\b", re.I)
+DONE_PAST = re.compile(r"\b(did|done|finished|completed|applied|saved|qildim|topshirdim|сделал)\b", re.I)
+
+
+COPIED_SENDER = re.compile(r"^\s*>?\s*(?:(?:[A-ZА-ЯЁ]\.?\s?){1,3}|[\w' ]{1,30}assistant)\s*:\s*$", re.I)
+
+
+def _strip_copied_sender(t):
+    """Text copied out of Telegram starts with the sender line ('M. A:', 'MrSimple's Assistant:'): drop those lines."""
+    lines = t.splitlines()
+    while lines and (COPIED_SENDER.match(lines[0]) or not lines[0].strip()):
+        lines.pop(0)
+    return "\n".join(lines).strip() or t
+
+
 def on_telegram_text(agent, tg, text):
-    t = text.strip()
+    t = _strip_copied_sender(text.strip())
+    pend = getattr(agent, "_pointer", None)
+    last, agent._last_msg = getattr(agent, "_last_msg", 0), time.time()
+    if pend and time.time() - pend[1] < PAIR_WINDOW and not t.startswith("/"):
+        agent._pointer = None
+        t = f"{pend[0]}\n\n{t}"                              # what the user meant + the thing itself, as ONE request
+        print(f"[route] paired with the previous message: {pend[0][:40]!r}")
+    elif (_is_pointer(t) and not getattr(agent, "_fin_pending", None)
+          and time.time() - last > 120):    # "this" right after a message means that one
+        agent._pointer = (t, time.time())
+        print(f"[route] pointer message, waiting for what it refers to: {t[:40]!r}")
+        return tg.send_styled(S[_lang(agent)]["hint_title"], icon="📎",
+                              intro="Okay, send it and I'll take care of it.")
+    if not getattr(agent, "_fin_pending", None):          # a PIN reply must reach the finance gate first
+        try:
+            from . import clients
+            if clients.telegram_text(agent, tg, t):          # before finance: "+998 ..." is not an amount
+                return
+        except Exception as e:
+            print("[clients]", repr(e)[:200])
     if finance_gate(agent, tg, t):
         print(f"[route] finance gate: {t[:60]!r}")
         return

@@ -144,6 +144,26 @@ TABLE = [
  "chess games. Use for counts, totals, 'latest', 'how many', per-period or per-person questions. Not for saving.",
  {"question": (S, "the question in full"), "domain": (S, "finance, tasks, practice")}, ["question", "domain"], {}),
 
+("client_add", "Save an agency client's details (study, work, language courses in Germany) to the clients database and "
+ "Google Sheet: a new client, OR new info for an existing one (it is matched by email, passport or name and updated). "
+ "Partial details are fine: save them, never ask for missing ones. Copy the details exactly.",
+ {"details": (S, "everything the user wrote about the client, copied exactly with line breaks")}, ["details"], {}),
+("client_update", "Change an EXISTING agency client: mark progress steps done or not done, or set one field. Steps: "
+ "1 Konsultatsiya, 3 Proton mail, 4 TLS akkaunt, 5 TLS terminni olib berish, 6 Til markazi to'lov + hujjatlari, "
+ "7 Expatrio hisob ochish, 8 Expatrio hujjatlar, 9 CV / Motivatsion xat, 10 Xujjat tarjimalari, 11 Videx forma, "
+ "12 Viza kutilmoqda.",
+ {"name": (S, "the client's name as the user wrote it"),
+  "steps": (S, "step numbers to change, comma separated, e.g. '4' or '4,5'"),
+  "done": (B, "true = done (default), false = not done"),
+  "field": (S, "phone, email, dob, address, certificate, course, city, visa_applied, visa_answer, payment, comment or account"),
+  "value": (S, "the new value; for account: 'Service: login / password'")}, ["name"], {}),
+("client_info", "Show one agency client's details, accounts and progress. Use for any question about a specific client.",
+ {"name": (S, "the client's name")}, ["name"], {}),
+("client_list", "List the agency's clients with their progress; with step, only clients where that step is not done "
+ "yet ('who has no TLS account yet') or, with done=true, where it is done.",
+ {"step": (S, "step number, optional"), "done": (B, "false (default) = step NOT done yet")}, [], {}),
+("client_undo", "Undo the last change to the clients base (a new client or a changed step/field).", {}, [], {}),
+
 ("finance_report", "Any question about the user's money (revenue, income, expenses, spending, balance, purchases, "
  "transactions). Handled by code behind a PIN: never answer it yourself and never state finance numbers.",
  {"question": (S, "the user's question in full")}, ["question"], {}),
@@ -155,6 +175,7 @@ TABLE = [
 SEQUENTIAL = {"add_birthday", "delete_birthday", "calendar_add", "calendar_undo", "remember", "song_add", "practice_log",
               "practice_delete", "log_driving", "task_add", "task_done", "journal_add", "timer", "chess", "quiz", "mac",
               "volume", "music", "save_note", "complete_goal", "remove_note", "log_progress"}
+SEQUENTIAL.update({"client_add", "client_update", "client_undo"})
 SEQUENTIAL.update({"process_download", "clipboard", "telegram_send", "birthday_greeting", "save_reference", "read_reference"})
 LANG_WORDS = {"english": "en", "russian": "ru", "uzbek": "uz"}
 SPEC = {t[0]: t for t in TABLE}
@@ -689,6 +710,11 @@ def _song_add(agent, a, text):
     agent.k("song_saved", title=name + (f" by {comp}" if comp else ""), instrument=instr)
 
 
+def _clients():
+    from .telegram_linda import clients
+    return clients
+
+
 def _finance_report(agent, a, text):
     tg = getattr(agent, "tg", None)
     brain = getattr(agent, "brain", None)
@@ -719,6 +745,11 @@ SPECIAL = {
     "practice_log": _practice_log, "practice_delete": _practice_delete, "log_progress": _log_progress,
     "task_done": _task_done, "song_add": _song_add,
     "finance_report": _finance_report,
+    "client_add": lambda ag, a, t: _clients().client_add(ag, a, t),
+    "client_update": lambda ag, a, t: _clients().client_update(ag, a, t),
+    "client_info": lambda ag, a, t: _clients().client_info(ag, a, t),
+    "client_list": lambda ag, a, t: _clients().client_list(ag, a, t),
+    "client_undo": lambda ag, a, t: _clients().client_undo(ag, a, t),
     "query_data": _query_data
 }
 
@@ -844,7 +875,7 @@ def _stem(t):
 
 def _expand(tokens):
     out = set(tokens)
-    out |= {t[:-1] for t in tokens if len(t) > 5 and t.endswith("s")} - STOP   # "ahmadjons" -> "ahmadjon"
+    out |= {t[:-1] for t in tokens if len(t) > 5 and t.endswith("s")} - STOP   # "alishers" -> "alisher"
     out |= {_stem(t) for t in tokens} - STOP
     for g in REL_GROUPS:
         if out & g:
@@ -853,8 +884,8 @@ def _expand(tokens):
 
 
 def _match(s, t):
-    """3 letters: whole word ("aka" must not hit "Zakaria"). 4 letters: start of a word ("anna" -> "Annam",
-    "isla" not inside other words). Longer: anywhere ("islom" -> "Islombek")."""
+    """3 letters: whole word ("aka" must not hit "Zakaria"). 4 letters: start of a word ("anna" -> "Annaxon",
+    "isla" not inside other words). Longer: anywhere ("timur" -> "Timurbek")."""
     if len(t) <= 3:
         return bool(re.search(r"\b" + re.escape(t) + r"\b", s))
     if len(t) == 4:
@@ -1118,8 +1149,8 @@ def _gather(agent, kind, q, user_text, use_text=True):
                 rows_ = [r for r in hit if _has(f"{r['name']} {r['relation']}", direct)] or hit
                 rel_words = set().union(*REL_GROUPS)
                 named = [r for r in rows_ if _has(r["name"], direct - rel_words)]
-                rows_ = named or rows_           # "muborak anna": the named grandmother, not both
-                kept = []                        # one person stored twice ("Annam" and "Omina Annam", same date)
+                rows_ = named or rows_           # "lola anna": the named grandmother, not both
+                kept = []                        # one person stored twice ("Anna" and "Lola Anna", same date)
                 base_w = lambda r: set(re.findall(r"\w+", re.sub(r"\s*\(.*\)$", "", r["name"]).lower()))
                 for r in sorted(rows_, key=lambda r: -len(base_w(r))):       # fullest name first
                     words = base_w(r)
@@ -1241,7 +1272,7 @@ def recall_data(agent, a, user_text="", budget=2000):
 
 
 def _mentions_person(agent, text):
-    """A short message naming someone from the birthday list ('annam?', 'Islom') is a question about them."""
+    """A short message naming someone from the birthday list ('anna?', 'Timur') is a question about them."""
     if len(text.split()) > 5:
         return False
     toks = {t for t in _expand(set(_tok(text)) - STOP) if len(t) >= 4}

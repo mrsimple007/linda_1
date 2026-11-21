@@ -257,7 +257,7 @@ class Telegram:
                         m = u.get("message") or {}
                         if str((m.get("chat") or {}).get("id")) != str(self.chat_id):
                             continue
-                        text = (m.get("text") or "").strip()
+                        text = (m.get("text") or m.get("caption") or "").strip()   # caption: text sent with a file
                         if text:
                             self.last_message_id = m.get("message_id")
                             try:

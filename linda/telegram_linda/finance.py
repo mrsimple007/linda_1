@@ -329,6 +329,16 @@ _STOP = {"for", "paid", "pay", "overall", "total", "monthly", "month", "buy", "b
          "a", "of", "uchun", "oylik", "umumiy", "za", "за", "для", "оплата"}
 
 
+def _different(a: str, b: str) -> bool:
+    """Same kind of thing but different specifics: they share a word and EACH has its own extra word
+    ('Aziz to'y' vs 'Nodira xola to'y': same event type, different people). Translations share nothing and pass."""
+    ta, tb = set(_tokens(a)), set(_tokens(b))
+    same = lambda w, v: w == v or (min(len(w), len(v)) >= 3 and (w.startswith(v) or v.startswith(w)))  # to'y ~ to'yona
+    shared = any(same(w, v) for w in ta for v in tb)
+    extra = lambda x, y: any(len(w) >= 3 and not any(same(w, v) for v in y) for w in x)
+    return shared and extra(ta, tb) and extra(tb, ta)
+
+
 def _tokens(text: str) -> list:
     t = str(text).lower().replace("’", "'").replace("ʻ", "'").replace("ʼ", "'")
     return [w for w in re.sub(r"[^\w']+", " ", t).split() if w not in _STOP]
@@ -355,6 +365,7 @@ MATCH_SYSTEM = (
     'Answer with "merge": the number of the THIS MONTH row the entry belongs to (same category, even if worded '
     'differently or in another language), otherwise null. Only if merge is null: "name": copy one EARLIER name '
     "exactly if the entry clearly belongs to it, otherwise null. Be strict: different things must not be merged; "
+    "entries about DIFFERENT people or events are different rows ('Aziz to'y' is not 'Nodira xola to'y'); "
     'when unsure use null. Return ONLY JSON like {"merge": 3, "name": null}.'
 )
 
@@ -443,9 +454,11 @@ class FlatSheet:
             return None
         idx = obj.get("merge")
         if isinstance(idx, int) and not isinstance(idx, bool) and 1 <= idx <= len(month):
+            if _different(tx.description, month[idx - 1]["desc"]):
+                return None                                # e.g. another person's wedding: its own row
             return ("merge", month[idx - 1])               # the model only picks a NUMBER; code does the rest
         name = obj.get("name")
-        if isinstance(name, str) and name in earlier:
+        if isinstance(name, str) and name in earlier and not _different(tx.description, name):
             return ("name", name)
         return None
 

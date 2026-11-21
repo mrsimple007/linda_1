@@ -352,10 +352,13 @@ class Brain:
         if ctx:
             system += ("\n\nStored data already searched for this message. Answer from it. Call recall only if "
                        "something is missing, and never say something is missing before reading this:\n" + ctx)
+        who = self.cfg.get("user_name") or ""
+        system += (f"\n\nThe user's name is {who}. Address them only as {who}, or use no name; never any other name "
+                   "(names in their messages or data belong to other people)." if who else "")
         system += (f"\n\nRules: answer in {L}. State relations exactly as stored (nephew stays nephew; add no "
                    "older/younger or other details). A birthday row with match=partial is a different person with a "
                    "similar name: say so. match=name_start is the SAME person under a short or suffixed name "
-                   "('Islom' = Islombek, 'anna' = Annam): answer about them directly, with the full stored relation. "
+                   "('Timur' = Timurbek, 'anna' = Annaxon): answer about them directly, with the full stored relation. "
                    "matched_people is the COMPLETE list of people from the birthday list that fit the question, "
                    "with relation and birthday: when it is present, name EVERY person in it (a saved note may list "
                    "fewer people; the list wins) and give each one's date when a date is asked. "
