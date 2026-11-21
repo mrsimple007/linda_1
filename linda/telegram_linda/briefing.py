@@ -609,11 +609,11 @@ def _complete_tasks(agent, titles, original):
             else f"⚠️ <b>Could not close</b>: {esc(t)}" for t in titles]
 
 
-def done_files(agent, title):
-    """'\n   📁 data/tasks.md · data/projects/linda.md' for a task closed in this message ('' if unknown)."""
-    files = (getattr(agent, "done_files", None) or {}).get(tools._norm(title))
+def done_files(agent, title, attr="done_files"):
+    """'\n   📁 data/tasks.md · data/projects/linda.md' for a task closed (or added) in this message ('' if unknown)."""
+    files = (getattr(agent, attr, None) or {}).get(tools._norm(title))
     if not files:
-        done = getattr(agent, "done_files", None) or {}
+        done = getattr(agent, attr, None) or {}
         key = next((k for k in done if k.startswith(tools._norm(title)[:40])), None)   # title was trimmed on save
         files = done.get(key) if key else None
     if not files:
@@ -731,7 +731,7 @@ TG_RULES = (                     # always sent; rules for other tools travel wit
     "reminders -> remember. A message saying work was done ALWAYS ends in a tool call, never praise alone. "
     "A QUESTION is a read: answer from the stored data, save nothing, and answer completely (every matching person or "
     "item with the details asked, one per line). After SAVING reply with ONE short friendly line; wishes and greetings "
-    "are written in full. Never say 'all set' before the thing itself is saved."
+    "are written in full. Never say 'all set' before the thing itself is saved. Call them 'tasks' (never 'to-do list')."
 )
 
 
@@ -798,6 +798,7 @@ def _converse(agent, tg, text, in_window):
     before = [r[1] for r in agent.store.open_tasks()]
     agent.card_sent = False                                 # set by tools that send their own card (bot stats, clients)
     agent.done_files = {}                                   # filled by tools.finish_task
+    agent.added_files = {}                                  # filled by tools.add_task_once
     brain.tool_log = []                                      # NEW
     try:
         with muted(agent, text) as mute:
@@ -839,7 +840,8 @@ def _converse(agent, tg, text, in_window):
     b, a = {tools._norm(x) for x in before}, {tools._norm(x) for x in after}
     # what really changed, read back from the database (not what the model claims)
     changes = [f"☑️ <b>Closed</b>: {esc(x)}" + done_files(agent, x) for x in before if tools._norm(x) not in a]
-    changes += [f"➕ <b>Added</b>: {esc(x)}" for x in after if tools._norm(x) not in b]
+    changes += [f"➕ <b>Task added</b>: {esc(x)}" + done_files(agent, x, "added_files")
+                for x in after if tools._norm(x) not in b]
     changes += _tool_lines(brain, agent)
     brain.history = (brain.history + [("user", text), ("model", reply)])[-2 * brain.cfg["brain"]["history_turns"]:]
     if getattr(agent, "card_sent", False) and not changes:

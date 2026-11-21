@@ -67,7 +67,7 @@ TABLE = [
     ("log_driving", "Save a driving test result.",
      {"score": (I, "points or correct answers"), "total": (I, "maximum"), "kind": (S, "theory, practical or mock_test"),
       "notes": (S, "notes")}, ["score", "total"], {"kind": "topic", "notes": "text"}),
-    ("task_add", "Add a to-do item. If the user says today or tomorrow, put that real date in due. ONE call per separate to-do: never merge different things into one title. "
+    ("task_add", "Add a task. If the user says today or tomorrow, put that real date in due. ONE call per separate to-do: never merge different things into one title. "
      "Also use it when the user says they NEED or WANT to do something later (e.g. practice in the evening): put a time if said. "
      "Not for work already finished, and not if a matching open task exists. "
      "Set project to the ongoing project it belongs to, by meaning, if any.",
@@ -527,7 +527,10 @@ def add_task_once(agent, title, due=None, project="", at=""):
             con.commit()
         finally:
             con.close()
-    sync_tasks_md(agent)
+    md = sync_tasks_md(agent)
+    proj, _ = _existing_project(agent, project)
+    # which md files show this task, so the Telegram reply can list them (read by briefing.added_files)
+    agent.added_files = {**(getattr(agent, "added_files", None) or {}), new: [f for f in (md, proj) if f]}
     agent.k("task_saved", title=title)
     return True
 
