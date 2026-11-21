@@ -720,44 +720,19 @@ def _answer(agent, tg, text, fallback=""):
 
 
 
-TG_RULES = (
+TG_RULES = (                     # always sent; rules for other tools travel with the tool (providers.TOOL_RULES)
     "Channel: a Telegram text chat, not voice. Handle EVERYTHING the message contains with tools in the SAME turn "
-    "(several tool calls at once are fine). Mapping: new to-do -> task_add; finished tasks -> task_done, ONE call per "
-    "finished task, with ids from the open tasks list; 'all tasks are done except X' = task_done for every open task "
-    "except X; ideas -> save_note file=ideas; goals -> save_note file=goals; lasting facts about the user -> "
-    "save_note file=profile; feelings or diary -> journal_add; work already finished that matches no open task -> "
-    "log_progress; the user's AGENCY CLIENTS (people going to Germany) -> client_add for a new client or pasted client "
-    "details (also partial ones, e.g. only an email and password: save them, never ask for more), client_update for "
-    "steps/fields of an existing client, client_info / client_list for questions about them, never task_add, save_note "
-    "or remember for them. Questions about the user's OWN BOTS (Simple Quizzer, Simple Slides: users, new users, "
-    "active users, quizzes, presentations, files, payments, any period) -> bot_stats with the question in full; never "
-    "answer bot numbers yourself. OPPORTUNITIES (scholarships, grants, exchange programmes, competitions, calls for "
-    "applications): save_reference with topic 'Scholarships' (one shared file; use 'Opportunities' for things that are "
-    "not scholarships) and the full text; if the user wants to apply or take part, ALSO task_add titled "
-    "'Apply: <programme name> (deadline <date and time>)' with due = the application deadline as YYYY-MM-DD. "
-    "Never answer 'all set' before the thing itself has been saved. Never task_add something already open, and never also log_progress or journal a task you just "
-    "closed. A question or chat is answered from stored data and nothing is saved. After SAVING, reply with ONE "
-    "short friendly line. A QUESTION gets a complete answer: every matching person or item, with the details asked for "
-    "(dates, relations), one per line if there are several. Wishes, greetings and messages are written in full."
-        " Tasks the user says they are 'still working on', 'still practicing' or 'still open' must stay open: pass them "
-    "in keep_ids. If the user pastes a list of tasks and says done, close every task in that list with ids='...'. "
-    "Do not reply until every task the user mentioned is handled."
-        " One task_add call per separate to-do. If a message lists several things (new lines, 'and also', 'and', "
-    "different subjects such as app stats vs finance stats), make a separate task_add for each, never one combined title. "
-    " A follow-up starting with 'and also' is a NEW separate to-do: make its own task_add and never repeat a title "
-    "that is already open. Finance to-dos (stats, revenue reports) are normal tasks. "
-    "A message saying work was done (studied, improved, implemented, finished) must ALWAYS end in a tool call: "
-    "task_done if it matches an open task, otherwise log_progress. Never reply with praise alone. "
-    "Write the log text as what was done, e.g. 'Studied tickets 55, 56 and 57 for the driver's licence exam.' "
-    "Work that belongs to no ongoing project goes to project 'General'. "
-    "Never state finance numbers: finance reports are handled by code behind a PIN."
-        "Any question about the user's money (revenue, income, expenses, spending, balance, purchases, transactions, "
-    "per month or category) -> call finance_report with the user's question in full. Never answer it yourself, "
-    "never state finance numbers, and never save such a question as a task or note. "
-    
-    + reference.TG_RULES_EXTRA
-    
-    )
+    "(several calls at once are fine); don't reply until every item is handled. Mapping: new to-do -> task_add, ONE "
+    "call per separate to-do (never a combined title; 'and also ...' is a new to-do; never re-add an open task); "
+    "finished tasks -> task_done with ids from the open tasks list ('all done except X' -> keep_ids; tasks 'still in "
+    "progress' stay open); finished work matching no open task -> log_progress (project 'General' if none), written as "
+    "what was done; an event ahead is task_add AND preparation already finished is ALSO log_progress; ideas / goals / "
+    "lasting facts about the user -> save_note file=ideas / goals / profile; feelings -> journal_add; tiny one-off "
+    "reminders -> remember. A message saying work was done ALWAYS ends in a tool call, never praise alone. "
+    "A QUESTION is a read: answer from the stored data, save nothing, and answer completely (every matching person or "
+    "item with the details asked, one per line). After SAVING reply with ONE short friendly line; wishes and greetings "
+    "are written in full. Never say 'all set' before the thing itself is saved."
+)
 
 
 
@@ -792,6 +767,24 @@ def _tool_lines(brain, agent=None):
                 line += f"\n   📁 <code>{esc(where)}</code>"
             out.append(line)
     return out
+
+from .. import providers as _providers
+_providers.TOOL_RULES.update({
+    "save_reference": "Longer information (course outlines, lesson or topic lists, schedules, resources, how-tos, "
+        "checklists) and facts about an ongoing course or project -> save_reference: topic = the subject, text = the "
+        "user's full text copied exactly (never a summary). Scholarships, grants, programmes, calls for applications -> "
+        "save_reference topic 'Scholarships' (or 'Opportunities'); if the user wants to apply, ALSO task_add "
+        "'Apply: <programme> (deadline <date time>)' with due = the deadline. Show a saved note with read_reference.",
+    "client_add": "The user's AGENCY CLIENTS (people going to Germany): client_add for a new client or pasted details "
+        "(partial is fine: save, never ask for more), client_update for steps/fields of an existing one, client_info / "
+        "client_list for questions. Never task_add, save_note or remember client data.",
+    "bot_stats": "Questions about the user's OWN BOTS (Simple Quizzer, Simple Slides: users, new/active users, quizzes, "
+        "presentations, files, payments, any period) -> bot_stats with the question in full; never state bot numbers yourself.",
+    "finance_report": "Any question about the user's money (revenue, income, expenses, balance, purchases) -> "
+        "finance_report with the question in full. Never state finance numbers and never save such a question.",
+    "remove_note": "To delete or correct something stored, call remove_note (file + a few words of the line) and let the "
+        "tool decide; never say 'not found' yourself. Near-identical names (Xolid / Xolida) are the same person.",
+})
 
 PLAN_HINT = ("The user was just asked for today's plans: treat what they list as new tasks due today (task_add), "
              "unless a line clearly is something else.")
@@ -1053,7 +1046,7 @@ import hmac
 from .finance import fmt_amount
 
 FIN_WORD = re.compile(
-    r"\b(revenue|income|expenses?|expences?|spent|spending|earned|profit|finances?|purchases?|bought|"
+    r"\b(revenue|income|expenses?|expences?|spend|spent|spending|earned|profit|finances?|purchases?|bought|"
     r"transactions?|payments?|balance|summary)\b|доход|расход|выручк|прибыл|покупк|трат|"
     r"daromad|xarajat|xarid", re.I)
 FIN_CMDS = ("/summary", "summary", "/balance", "balance", "/finance")
@@ -1226,6 +1219,18 @@ def _fin_answer(agent, tg, query):
         print("[finance ask]", repr(e)[:150])
         tg.send_styled("Finance", icon="💰", intro=f"I couldn't read the finance data: {e}")
 
+def _pin_like(t, pin):
+    """Could this reply be a PIN attempt? One word, 3-20 characters, and digits in it if the PIN has digits
+    ('November' after the PIN question is a new message, not a wrong PIN)."""
+    if not re.fullmatch(r"\S{3,20}", t):
+        return False
+    if any(ch.isdigit() for ch in pin) and not any(ch.isdigit() for ch in t):
+        return False
+    from . import bot_stats                       # months, bot names, stats/finance words are never a PIN
+    return not (bot_stats.REFINE.search(t) or bot_stats.STATS_Q.search(t) or FIN_WORD.search(t)
+                or re.search(r"quizzer|slides?|bots?", t, re.I))
+
+
 def _fin_pin(agent):
     return str(agent.cfg.get("finance_pin") or os.getenv("LINDA_FINANCE_PIN") or "")
 
@@ -1249,7 +1254,7 @@ def finance_gate(agent, tg, t):
     fc = getattr(agent, "finance_chat", None)
     low = t.lower()
     pend = getattr(agent, "_fin_pending", None)
-    if pend and now < pend[1] and re.fullmatch(r"\S{3,20}", t) and not (fc and fc.matches(t)):
+    if pend and now < pend[1] and _pin_like(t, pin) and not (fc and fc.matches(t)):
         agent._fin_pending = None
         tg.delete_later(getattr(tg, "last_message_id", None))      # the PIN must not stay in the chat
         if now < getattr(agent, "_fin_lock", 0):
@@ -1303,26 +1308,40 @@ def _strip_copied_sender(t):
     return "\n".join(lines).strip() or t
 
 
+STATUS = {"stats": "📊 Checking your bots' numbers…", "default": "⏳ Looking into it…"}
+
+
 @contextlib.contextmanager
-def _typing(tg):
-    """Telegram shows 'typing…' for 5 s only: repeat it every 4 s until the answer is out."""
-    stop = threading.Event()
+def _typing(tg, status=None):
+    """Telegram shows 'typing…' for 5 s only: repeat it every 4 s. If the answer takes longer than 2 s, also show a
+    short status line, and delete it once the answer is out."""
+    stop, sid = threading.Event(), {}
     def keep():
+        n = 0
         while not stop.is_set():
             try:
                 tg.typing()
+                if n == 0 and status and not stop.wait(2) and hasattr(tg, "send_status"):
+                    sid["id"] = tg.send_status(status)
             except Exception:
                 pass
-            stop.wait(4)
+            n += 1
+            stop.wait(4 if n > 1 else 2)
     threading.Thread(target=keep, daemon=True).start()
     try:
         yield
     finally:
         stop.set()
+        if sid.get("id") and hasattr(tg, "delete_message"):
+            tg.delete_message(sid["id"])
 
 
 def on_telegram_text(agent, tg, text):
-    with _typing(tg):
+    t = text.strip()
+    quick = t.startswith("/") and t.split()[0].lower() in ("/start", "/help", "/tasks", "/notes", "/clients", "/birthdays")
+    from . import bot_stats
+    status = None if quick else (STATUS["stats"] if bot_stats.wants_stats(agent, t) else STATUS["default"])
+    with _typing(tg, status):
         return _on_telegram_text(agent, tg, text)
 
 
@@ -1340,10 +1359,16 @@ def _on_telegram_text(agent, tg, text):
         print(f"[route] pointer message, waiting for what it refers to: {t[:40]!r}")
         return tg.send_styled(S[_lang(agent)]["hint_title"], icon="📎",
                               intro="Okay, send it and I'll take care of it.")
+    pend = getattr(agent, "_fin_pending", None)
+    if pend and not _pin_like(t, _fin_pin(agent)):
+        agent._fin_pending = None                            # not a PIN: the PIN question is dropped, route normally
     if not getattr(agent, "_fin_pending", None):          # a PIN reply must reach the finance gate first
         try:
             from . import clients
             if clients.telegram_text(agent, tg, t):          # before finance: "+998 ..." is not an amount
+                return
+            from . import bot_stats
+            if bot_stats.telegram_text(agent, tg, t):        # before finance: "payments in Quizzer" needs no PIN
                 return
         except Exception as e:
             print("[clients]", repr(e)[:200])

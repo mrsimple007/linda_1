@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from google.genai import types
 from . import fastpath, memory_files, reference, tools
 from .providers import build_providers, openai_tools, pick
+from . import providers as providers_mod
 from .util import online
 from .web import CHANNEL, TURN
 
@@ -340,12 +341,18 @@ class Brain:
         defs = list(pick(self.oa_tools, text))
         if not any(_tool_name(d) == "recall" for d in defs):
             defs += [d for d in self.oa_tools if _tool_name(d) == "recall"]
-        if self.extra_rules and not any(_tool_name(d) == "finance_report" for d in defs):   # Telegram only
-            defs += [d for d in self.oa_tools if _tool_name(d) == "finance_report"]
-        if self.extra_rules or reference.looks_like_reference(text) or reference.MEM_ASK.search(text):
-            for nm in ("save_reference", "read_reference"):                 # long notes must always be possible
-                if not any(_tool_name(d) == nm for d in defs):
-                    defs += [d for d in self.oa_tools if _tool_name(d) == nm]
+        want = set()
+        if reference.looks_like_reference(text) or reference.MEM_ASK.search(text):
+            want |= {"save_reference", "read_reference"}                     # long notes must always be possible
+        if self.extra_rules:
+            try:                                                             # a client's name carries no keyword
+                from .telegram_linda import clients
+                if clients.service(ag).named_in(text):
+                    want |= providers_mod.CLIENT_TOOLS
+            except Exception as e:
+                print("[brain] client name check skipped:", repr(e)[:80])
+        have = {_tool_name(d) for d in defs}
+        defs += [d for d in self.oa_tools if _tool_name(d) in want - have]
         think = bool(THINK.search(text))
         ctx = tools.prefetch(ag, text, think=think)
         system = self._system(full=think)
@@ -368,6 +375,11 @@ class Brain:
             system += "\n\n" + THINK_RULES.format(user=self.cfg.get("user_name") or "the user")
         if self.extra_rules:                                          # channel-specific rules (Telegram sets this)
             system += "\n\n" + self.extra_rules
+            sent = {_tool_name(d) for d in defs}
+            extra = [r for t, r in providers_mod.TOOL_RULES.items()
+                     if t in sent or (t == "client_add" and sent & providers_mod.CLIENT_TOOLS)]
+            if extra:
+                system += " " + " ".join(extra)
         msgs = [{"role": "system", "content": system}]
         n_hist = int(self.cfg["brain"].get("provider_history_turns", 2) or 0)       # follow-ups ("yes, add it") need the last turns
         n_hist = max(n_hist, 3) if think else n_hist

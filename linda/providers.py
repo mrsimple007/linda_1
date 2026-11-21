@@ -11,13 +11,25 @@ CORE = {"task_add", "task_done", "timer", "plan", "stats", "practice_log", "song
         "client_add", "client_update", "client_info", "client_list", "client_undo", "bot_stats"}
 _T = {"string": "string", "integer": "integer", "boolean": "boolean"}
 
-BASE = {"recall", "task_add", "task_done", "add_birthday", "delete_birthday", "journal_add", "log_progress",
-        "save_note", "practice_log", "song_add", "telegram_send", "music", "remember", "save_reference", "read_reference", "finance_report", "query_data",
-        "client_add", "client_update", "client_info", "client_list", "client_undo",   # client names carry no keyword
-        "bot_stats"}
+# sent with EVERY message; everything else only when the message is about it (keeps each call far below the
+# providers' tokens-per-minute limits: all tools at once were ~4 000 tokens)
+BASE = {"recall", "task_add", "task_done", "save_note", "remember", "journal_add", "log_progress"}
+CLIENT_TOOLS = {"client_add", "client_update", "client_info", "client_list", "client_undo"}
+TOOL_RULES = {}                  # tool -> extra instruction, added to the prompt only when that tool is sent
 EXTRA = [
-    (r"client|klient|mijoz|клиент|\bTLS\b|expatrio|proton|videx|viza\b|visa\b",
-     {"client_add", "client_update", "client_info", "client_list", "client_undo"}),
+    (r"birthday|tug'?il|день рожд|\bborn\b|turns \d", {"add_birthday", "delete_birthday"}),
+    (r"practi|played|piano|guitar|song|mashq|qo'?shiq|пианино|гитар|песн|repertoire", {"practice_log", "song_add"}),
+    (r"\bplay|music|spotify|qo'?shiq|музык|включи|pause|next track", {"music"}),
+    (r"\bsend\b|telegram|yubor|jo'?nat|отправ|пришли|forward|greeting|tabrik|поздрав", {"telegram_send"}),
+    (r"note|save|keep|course|lesson|outline|reference|schedule|scholar|stipend|grant|programme|program|apply|"
+     r"saqla|eslatma|kurs|dars|сохрани|заметк|конспект|курс|урок", {"save_reference", "read_reference"}),
+    (r"revenue|income|expens|spen[dt]|earned|profit|financ|purchase|bought|transaction|payment|balance|"
+     r"pul|daromad|xarajat|xarid|доход|расход|выручк|прибыл|покупк|трат|баланс", {"finance_report", "query_data"}),
+    (r"how many|how much|qancha|nechta|сколько|count|statisti", {"query_data"}),
+    (r"\bbots?\b|quizzer|quiz bot|slides|slayd|presentation|prezentatsiya|users?\b|foydalanuvchi|пользоват|юзер|"
+     r"\bstats?\b|active|subscri|premium|referat", {"bot_stats"}),
+    (r"client|klient|mijoz|клиент|\bTLS\b|expa\w{2,3}io|proton|videx|viza\b|visa\b|passport|pasport|паспорт",
+     CLIENT_TOOLS),
     (r"timer|remind|alarm|таймер|напомни|taymer|eslat", {"timer"}),
     (r"volume|louder|quieter|mute|screenshot|lock|громк|тише|громче|ovoz", {"volume", "mac"}),
     (r"\bopen\b|launch|открой|\boch\b", {"open_app"}),

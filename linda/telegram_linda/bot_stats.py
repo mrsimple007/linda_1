@@ -14,6 +14,7 @@ CONFIG   config.yaml:
                quizzer: {name: "Simple Quizzer", tables: [simplequizzer_users, ...], hint: "..."}
 """
 import datetime
+import decimal
 import json
 import os
 import re
@@ -31,7 +32,8 @@ MAX_ROWS = 200
 SQL_RULES = """You write ONE read-only PostgreSQL query that answers a question about the user's Telegram bot(s).
 Now in {tz}: {now}. "today", "yesterday", "last N days", "this/last month", "last year" are calendar periods in {tz}:
 today = (now() AT TIME ZONE '{tz}')::date (never CURRENT_DATE: the server runs in UTC); compare
-(column AT TIME ZONE '{tz}')::date for timestamptz columns.
+(column AT TIME ZONE '{tz}')::date for timestamptz columns; a "timestamp without time zone" column holds UTC:
+(column AT TIME ZONE 'UTC' AT TIME ZONE '{tz}')::date.
 TABLES (only these, only these columns):
 {schema}
 {hints}
@@ -48,6 +50,13 @@ Rules:
   FROM simplequizzer_users u, d
   Months: date_trunc('month', d.today)::date; last month = BETWEEN (date_trunc('month', d.today) - interval '1 month')::date
   AND date_trunc('month', d.today)::date - 1.
+- a period of up to 31 days: return ONE ROW PER DAY (every day, also days with 0) plus the totals as extra columns:
+  WITH d AS (SELECT (now() AT TIME ZONE '{tz}')::date AS today),
+       days AS (SELECT generate_series(d.today - 6, d.today, interval '1 day')::date AS day FROM d)
+  SELECT days.day, count(u.created_at) AS new_users, sum(count(u.created_at)) OVER () AS period_total,
+         (SELECT count(*) FROM simplequizzer_users) AS total_users
+  FROM days LEFT JOIN simplequizzer_users u ON (u.created_at AT TIME ZONE '{tz}')::date = days.day
+  GROUP BY days.day ORDER BY days.day
 - give context in the SAME query as extra columns: the all-time total next to a period number (e.g. new users in the
   period AND total users), and the previous period of the same length when the user asks about a period.
 - one statement, SELECT or WITH ... SELECT, no semicolon, LIMIT 200.
@@ -56,17 +65,74 @@ or {{"sql": null, "reply": "short answer"}} if the question cannot be answered f
 
 ANSWER = """You are Linda, answering in a Telegram chat about the user's own bot. ROWS came from its database, MEANING
 says what was counted. Use ONLY the numbers in ROWS, exactly as given; do not compute new numbers.
-Write it like a short report in the language of the question: start with the bot name and the main answer, then one
-line per extra number (overall total, previous period), with the dates of the period. Example:
-"Simple Quizzer: 312 new users in the last 3 days (19–21 Nov).
-Overall: 48 120 users.
-Previous 3 days: 287."
-Plain text, no SQL, no column names, numbers with spaces as thousands separators, at most 8 lines.
+Write it like a short report in the language of the question: start with the bot name and the main answer with the
+dates of the period; if ROWS has one row per day, list every day on its own line; then the overall total / previous
+period if present. "Overall" ALWAYS means the all-time total of the bot (e.g. all users ever), never the period total
+again. Never write the same number twice. Examples:
+"Simple Slides: 1 345 new users in the last 7 days (15–21 Nov).
+15 Nov — 210
+16 Nov — 188
+...
+21 Nov — 67
+Overall: 46 556 users."
+"Simple Quizzer: 56 982 users in total."
+Plain text, no SQL, no column names, numbers with spaces as thousands separators, at most 40 lines.
 If ROWS is empty, say there was nothing in that period."""
 
 
 class StatsError(Exception):
     pass
+
+
+MONTHS = [("jan", "yanv", "январ"), ("feb", "fevr", "феврал"), ("mar", "mart", "март"), ("apr", "aprel", "апрел"),
+          ("may", "may", "ма"), ("jun", "iyun", "июн"), ("jul", "iyul", "июл"), ("aug", "avgust", "август"),
+          ("sep", "sentabr", "сентябр"), ("oct", "oktabr", "октябр"), ("nov", "noyabr", "ноябр"),
+          ("dec", "dekabr", "декабр")]
+
+
+def period_of(text, today):
+    """The calendar period a question means, worked out in code: -> (first day, last day, label) or None.
+    The model gets these exact dates, so it cannot pick the wrong month or year."""
+    t = text.lower()
+    d = datetime.timedelta
+    m = re.search(r"(?:last|past|oxirgi|so'?nggi|последни\w*)\s+(\d{1,3})\s*(?:days?|kun|дн|день)", t)
+    if m:
+        n = int(m.group(1))
+        return today - d(days=n - 1), today, f"last {n} days"
+    if re.search(r"\btoday\b|bugun|сегодня", t):
+        return today, today, "today"
+    if re.search(r"yesterday|kecha|вчера", t):
+        return today - d(days=1), today - d(days=1), "yesterday"
+    if re.search(r"(last|previous|o'?tgan|прошл\w*)\s+(week|hafta|недел)", t):
+        start = today - d(days=today.weekday() + 7)
+        return start, start + d(days=6), "last week"
+    if re.search(r"this week|bu hafta|эт\w+ недел", t):
+        return today - d(days=today.weekday()), today, "this week"
+    first = today.replace(day=1)
+    if re.search(r"(last|previous|o'?tgan|прошл\w*)\s+(month|oy|месяц)", t):
+        end = first - d(days=1)
+        return end.replace(day=1), end, "last month"
+    if re.search(r"this month|bu oy|эт\w+ месяц", t):
+        return first, today, "this month"
+    for i, names in enumerate(MONTHS, 1):
+        if any(re.search(rf"\b{n}\w*", t) for n in names if not (n == "ma" and "март" in t)):
+            if names[0] == "may" and not re.search(r"\b(in|of|for|during|since)\s+may\b|\bmay\s+(20\d\d|month|oy\w*)\b|"
+                                                   r"\bмая?\b|\bмае\b", t):
+                continue
+            y = int(re.search(r"\b(20\d\d)\b", t).group(1)) if re.search(r"\b(20\d\d)\b", t) else \
+                (today.year if i <= today.month else today.year - 1)
+            start = datetime.date(y, i, 1)
+            end = (datetime.date(y + (i == 12), i % 12 + 1, 1) - d(days=1))
+            return start, min(end, today) if (y, i) == (today.year, today.month) else end, start.strftime("%B %Y")
+    if re.search(r"(last|previous|o'?tgan|прошл\w*)\s+(year|yil|год)", t):
+        return datetime.date(today.year - 1, 1, 1), datetime.date(today.year - 1, 12, 31), str(today.year - 1)
+    if re.search(r"this year|bu yil|эт\w+ год", t):
+        return datetime.date(today.year, 1, 1), today, f"{today.year} so far"
+    m = re.search(r"\b(20\d\d)\b", t)
+    if m:
+        y = int(m.group(1))
+        return datetime.date(y, 1, 1), min(datetime.date(y, 12, 31), today), str(y)
+    return None
 
 
 class BotStats:
@@ -166,7 +232,7 @@ class BotStats:
         def val(v):
             if isinstance(v, (datetime.date, datetime.datetime)):
                 return v.isoformat()
-            if hasattr(v, "is_integer"):                    # Decimal / float
+            if isinstance(v, (float, decimal.Decimal)):        # Decimal from sum()/avg(), float
                 return int(v) if float(v).is_integer() else round(float(v), 2)
             return v
         out = [{c: val(v) for c, v in zip(cols, r)} for r in rows]
@@ -175,6 +241,44 @@ class BotStats:
                 for r in out:
                     r[c] = "•"
         return out
+
+    # ---------------- formatting in code (exact, no AI call) ----------------
+    @staticmethod
+    def _num(col, v):
+        if isinstance(v, bool) or v is None:
+            return str(v if v is not None else 0)
+        if isinstance(v, (int, float)):
+            n = round(v) if float(v).is_integer() or abs(v) >= 100 else round(v, 2)
+            txt = f"{n:,}".replace(",", " ")
+            return txt + (" UZS" if re.search(r"uzs|sum\b|amount|revenue|so'?m", col, re.I) else "")
+        return str(v)
+
+    @staticmethod
+    def _label(col):
+        words = re.sub(r"_+", " ", col).strip()
+        if re.search(r"\bperiod\b", words, re.I) and not re.search(r"previous|prev", words, re.I):
+            words = "in this period" + (" (UZS)" if re.search(r"uzs|amount|sum", words, re.I) else "")
+        words = re.sub(r"\buzs\b", "", words, flags=re.I).strip() or col
+        return words[:1].upper() + words[1:]
+
+    def format(self, name, per, cols, data):
+        """One summary row, or one row per day: written in code. Anything else -> None (the AI words it)."""
+        if not data:
+            return f"{name}: nothing in that period." if per else f"{name}: nothing found."
+        head = f"{name}" + (f" · {per[2]} ({per[0]:%d %b}–{per[1]:%d %b})" if per and per[0] != per[1]
+                            else f" · {per[2]}" if per else "")
+        if len(data) == 1:
+            return "\n".join([head] + [f"{self._label(c)}: {self._num(c, v)}" for c, v in data[0].items()])
+        first = cols[0]
+        if len(data) <= 40 and all(re.fullmatch(r"\d{4}-\d{2}-\d{2}(T.*)?", str(r[first])) for r in data):
+            same = [c for c in cols[1:] if len({str(r[c]) for r in data}) == 1]          # totals repeated on every row
+            vary = [c for c in cols[1:] if c not in same]
+            lines = [head] + [f"{self._label(c)}: {self._num(c, data[0][c])}" for c in same]
+            for r in data:
+                d = datetime.date.fromisoformat(str(r[first])[:10])
+                lines.append(f"{d:%d %b} — " + ", ".join(self._num(c, r[c]) for c in vary))
+            return "\n".join(lines)
+        return None
 
     # ---------------- the question ----------------
     def ask(self, question, bot=""):
@@ -195,8 +299,14 @@ class BotStats:
         system = SQL_RULES.format(tz=self.tz, now=now, schema=text,
                                   hints=f"About this bot ({b.get('name', bot)}): {b['hint']}" if b.get("hint") else "")
         err, sql, meaning, rows, cols = "", "", "", None, []
+        today = datetime.datetime.now().date()
+        per = period_of(question.split("\nChange:")[-1], today) or period_of(question, today)
+        fixed = (f"\nPERIOD (already worked out, use EXACTLY these local dates): {per[0]} to {per[1]} ({per[2]}). "
+                 f"Filter with (local date) BETWEEN '{per[0]}' AND '{per[1]}'." if per else "")
+        own = (f"{question}{fixed}\n\n[Answer ONLY for {b.get('name', bot)}, from its own tables above. Each bot has its own "
+               f"tables; other bots are answered separately, so never say you can't tell the bots apart.]")
         for _ in range(3):
-            raw = self.llm(system, question if not err else f"{question}\n\nYour previous query failed: {err}\nFix it.")
+            raw = self.llm(system, own if not err else f"{own}\n\nYour previous query failed: {err}\nFix it.")
             m = re.search(r"\{.*\}", raw or "", re.S)
             try:
                 obj = json.loads(m.group(0)) if m else None
@@ -221,9 +331,89 @@ class BotStats:
         if rows is None:
             raise StatsError(f"I couldn't build a working query for {b.get('name', bot)} ({err}). Try rephrasing.")
         data = self._clean(cols, rows)
-        ans = self.llm(ANSWER, f"BOT: {b.get('name', bot)} (use exactly this name)\nQUESTION: {question}\nMEANING: {meaning}\nROWS: {json.dumps(data[:60], ensure_ascii=False, default=str)}")
+        fixed_text = self.format(b.get("name", bot), per, cols, data)
+        if fixed_text:
+            return {"bot": b.get("name", bot), "answer": fixed_text, "sql": sql}
+        ans = self.llm(ANSWER, f"BOT: {b.get('name', bot)} (use exactly this name)"
+                       + (f"\nPERIOD: {per[0]} to {per[1]} ({per[2]})" if per else "") + f"\nQUESTION: {question}\nMEANING: {meaning}\nROWS: {json.dumps(data[:60], ensure_ascii=False, default=str)}")
         ans = re.sub(r"\*\*|`", "", ans or "").strip() or "\n".join(" · ".join(str(v) for v in r.values()) for r in data[:20])
         return {"bot": b.get("name", bot), "answer": ans, "sql": sql}
+
+
+# ============================ routing (no AI needed to decide) =========================
+ALIASES = {"quizzer": r"quizzer|simple ?quiz|quiz bot|kvizer|квиз", "slides": r"slides?|slayd|presentation|prezentats|"
+           r"referat|презентац|слайд"}
+STATS_Q = re.compile(r"\busers?\b|foydalanuvchi|пользоват|юзер|subscriber|\bnew\b|active|joined|signed up|payments?|"
+                     r"to'?lov|оплат|premium|quizzes|presentations|files|docs?\b|how many|how much|qancha|nechta|"
+                     r"сколько|statisti|\bstats?\b|growth|o'?sish|рост", re.I)
+EXPLAIN = re.compile(r"what is (it|this)|nima (u|bu)|что это|tell me about|haqida", re.I)
+FOLLOW_UP = re.compile(r"\b(this|that|it|there|same|bu|shu|unda|этом|там|тоже)\b|^\s*(and|va|а|и)\b", re.I)
+PERIOD = re.compile(r"today|yesterday|week|month|year|days?\b|bugun|kecha|hafta|oy\b|yil|kun|сегодня|вчера|недел|"
+                    r"месяц|год|дн", re.I)
+
+
+REFINE = re.compile(r"^\s*(and |va |а |и )?(only |faqat |только )?((for|in|uchun|за|в) )?"
+                    r"(today|yesterday|this|last|previous|january|february|march|april|may|june|july|august|september|"
+                    r"october|november|december|yanvar|fevral|mart|aprel|iyun|iyul|avgust|sentabr|oktabr|noyabr|"
+                    r"dekabr|январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр|week|month|year|"
+                    r"\d{4}|\d{1,2}\s?days?)", re.I)
+
+
+def _bot_named(agent, text):
+    """'quizzer' / 'slides' / 'both' / None. 'both bots', 'my bots', 'botlar' mean both."""
+    bots = (agent.cfg.get("bot_stats") or {}).get("bots") or {}
+    hits = [k for k in bots if re.search(ALIASES.get(k, re.escape(k)), text, re.I)]
+    if len(hits) > 1 or re.search(r"\bboth bots|\bbots\b|\bikkala bot|\bbotlar|оба бота|\bботах|\bботов", text, re.I):
+        return "both"
+    return hits[0] if hits else None
+
+
+def wants_stats(agent, text):
+    """-> 'quizzer' / 'slides' / 'both' / '' (both bots) when the message is a numbers question about the bots, else None."""
+    t = text.strip()
+    if t.startswith("/") or len(t) > 300 or not (agent.cfg.get("bot_stats") or {}).get("bots"):
+        return None
+    bot = _bot_named(agent, t)
+    if bot and bot != "both":
+        agent._last_bot = (bot, time.time())              # remembered even for 'Simple Slides, what is it?'
+    if not STATS_Q.search(t) or EXPLAIN.search(t):
+        return None
+    if bot:
+        return "" if bot == "both" else bot
+    last = getattr(agent, "_last_bot", None)
+    if last and time.time() - last[1] < 1800 and FOLLOW_UP.search(t):
+        return last[0]                                     # 'how many users do we have on this?'
+    if re.search(r"\busers?\b|foydalanuvchi|пользоват|юзер|subscriber", t, re.I) and PERIOD.search(t):
+        return ""                                          # 'new users last week' with no bot: both bots
+    return None
+
+
+def _refinement(agent, text):
+    """'November', 'and last month?', 'only Slides' right after a stats answer: the same question, changed."""
+    last = getattr(agent, "_last_stats", None)
+    t = text.strip()
+    if not last or time.time() - last[2] > 600 or len(t.split()) > 6 or STATS_Q.search(t):
+        return None
+    bot = _bot_named(agent, t)
+    if not (REFINE.search(t) or bot):
+        return None
+    return (f"{last[0]}\nChange: {t}", "" if bot == "both" else (bot or last[1]))
+
+
+def telegram_text(agent, tg, text):
+    ref = _refinement(agent, text)
+    if ref:
+        question, bot = ref
+    else:
+        bot = wants_stats(agent, text)
+        if bot is None:
+            return False
+        question = text
+    print(f"[route] bot stats -> {bot or 'both bots'}{' (refining the last question)' if ref else ''}")
+    agent._last_stats = (question, bot, time.time())
+    from .clients import _run
+    _run(agent, tg, bot_stats, {"question": question, "bot": bot}, question)
+    return True
 
 
 # ============================ Linda tool ============================================

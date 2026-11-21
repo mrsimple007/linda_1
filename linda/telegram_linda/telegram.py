@@ -169,6 +169,16 @@ class Telegram:
             print("[telegram] html failed, sending plain:", repr(e)[:120])
             return self._send_plain(plain or plain_of(body))
 
+    def send_status(self, text):
+        """A short 'working on it' line; returns its message id so it can be deleted when the answer is out."""
+        try:
+            r = requests.post(self._url("sendMessage"), data={"chat_id": self.chat_id, "text": text,
+                                                             "disable_notification": "true"}, timeout=10)
+            return (r.json().get("result") or {}).get("message_id")
+        except Exception as e:
+            print("[telegram] status failed:", repr(e)[:100])
+            return None
+
     def send_widget(self, html_text, caption=""):
         doc = widget_doc(html_text)
         packed = len(zlib.compress(doc.encode("utf-8"), 9))

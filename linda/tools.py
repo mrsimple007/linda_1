@@ -43,8 +43,8 @@ TABLE = [
       "duration_minutes": (I, "default 60")}, ["title", "start"], {}),
     ("calendar_agenda", "Read what is on the calendar.", {"when": (S, "today, tomorrow or week")}, [], {}),
     ("calendar_undo", "Remove the calendar event that was just added.", {}, [], {}),
-    ("telegram_send", "Send something to the user's own Telegram. Never use it for lists of stored data (birthdays, tasks, news): call that tool with telegram=true instead.",
-     {"text": (S, "the full message to send. Always write the actual content. For a greeting, wish or personal message write it in full: warm, natural, personal to the person, several sentences, never a one-liner. Leave empty only if the user says 'send that' about your previous answer.")}, ["text"], {}),
+    ("telegram_send", "Send something to the user's own Telegram (not lists of stored data: use that tool with telegram=true).",
+     {"text": (S, "the full message; greetings and wishes warm, personal, several sentences. Empty only for 'send that' about your last answer")}, ["text"], {}),
     ("clipboard", "Work with the text the user copied (summarize, translate, fix, explain).",
      {"instruction": (S, "what to do"), **TG}, [], {}),
     ("mac", "Mac control.", {"action": (S, "lock, mute, unmute or screenshot")}, ["action"], {}),
@@ -76,19 +76,15 @@ TABLE = [
       "time": (S, "time of day HH:MM if said (evening = 20:00)"),
       "project": (S, "exact name of the ongoing project this belongs to, if any")}, ["title"], {}),
     ("task_list", "List the open tasks.", {}, [], {}),
-    ("task_done", "Mark open tasks as done. Use it when the user says they finished, completed or already did something that "
-     "matches an open task by meaning (speech-to-text may distort words). Ids come from the open tasks list. "
-     "ONE call can close many: ids='3,5,7'. For 'everything is done except X and Y' pass keep_ids='<ids of X and Y>': "
-     "ALL other open tasks are closed, so list only the tasks that stay open. Tasks the user says they are still "
-     "working on, still practicing or that are still open must stay open. "
-     "Also pass the ongoing project it belongs to, by meaning, if there is one (single task only).",
+    ("task_done", "Close open tasks the user finished (match by meaning; speech-to-text may distort words). Use ids from "
+     "the open tasks list; ids='3,5,7' closes several. 'Everything done except X, Y' -> keep_ids='<ids of X, Y>' (all "
+     "OTHER open tasks close). Tasks still in progress stay open.",
      {"id": (I, "id of ONE task"),
-      "ids": (S, "comma-separated ids of the tasks to close, e.g. '3,5,7'"),
-      "keep_ids": (S, "comma-separated ids that must STAY open; every other open task is closed. Only with at least one id"),
+      "ids": (S, "ids to close, e.g. '3,5,7'"),
+      "keep_ids": (S, "ids that STAY open; every other open task closes"),
       "text": (S, "words from the task, only if you have no id"),
-      "note": (S, "TWO sentences, in English, of what was achieved by finishing this task (single task only). "
-                  "Written to the project's progress log."),
-      "project": (S, "exact name of the ongoing project this task belongs to, if any")}, [], {}), 
+      "note": (S, "2 sentences in English: what finishing it achieved (single task; goes to the project log)"),
+      "project": (S, "exact name of the ongoing project it belongs to, if any")}, [], {}),
       ("song_add", "Add a song or piece to the repertoire. FIRST work out the proper title and the composer or artist from your own knowledge, then save with full details. Never save a bare guess.",
      {"name": (S, "proper title, e.g. 'Game of Thrones (Main Theme)'"), "composer": (S, "composer or artist, e.g. 'Ramin Djawadi'"),
       "instrument": (S, "piano or guitar"), "status": (S, "learning, polishing or repertoire"),
@@ -103,17 +99,16 @@ TABLE = [
     ("stats", "Progress and statistics.", {"topic": (S, "practice, chess, driving or tasks; empty for everything"), **TG}, [], {}),
     ("web_answer", "Answer a question that needs CURRENT information from the web (news, sports, prices, 'latest', 'today').",
      {"query": (S, "the question"), **TG}, ["query"], {}),
-    ("save_note", "Save something the user said to a personal file. file=profile: lasting facts about the user (languages, schedule, instruments, health, preferences). NOT facts about a course or project (its students, dates): those go to save_reference. file=goals: targets and ambitions (yearly/monthly/weekly). file=ideas: random thoughts and project ideas to keep. Tasks with a due date go to task_add, diary entries to journal_add.",
+    ("save_note", "Save to a personal file: profile = lasting facts about the user; goals = targets; ideas = thoughts and "
+     "project ideas. Not course/project facts (save_reference), dated tasks (task_add) or diary (journal_add).",
      {"file": (S, "profile, goals or ideas"),
-      "text": (S, "the note itself, written out in full from the conversation (replace 'it', 'that', 'about it' with what they refer to). Never the instruction like 'write this to ideas'"),
+      "text": (S, "the note in full, with 'it'/'that' replaced by what they mean; never the instruction itself"),
       "section": (S, "optional heading such as Yearly, Monthly, Weekly, Music")}, ["file", "text"], {}),
     ("complete_goal", "Mark a goal in goals.md as done.", {"text": (S, "a few words from the goal")}, ["text"], {}),
     ("remove_note", "Delete an outdated or wrong line from profile, goals or ideas.",
      {"file": (S, "profile, goals or ideas"), "text": (S, "words from the line to delete")}, ["file", "text"], {}),
-    ("log_progress", "Record finished work that matches NO open task (past tense). Compare the update with the open tasks first: "
-     "if one matches by meaning, use task_done instead. Then look at 'ongoing projects' in the index: if the work belongs to one "
-     "of them by meaning (e.g. pizza data collection belongs to the Data Collection project), use that exact name. "
-     "Set new_project=true ONLY for a clearly different project that is not in the list. One clear sentence in English.",
+    ("log_progress", "Record finished work that matches NO open task (if one matches, use task_done). Use the exact name "
+     "of the ongoing project it belongs to by meaning; new_project=true only for clearly new work. One sentence in English.",
      {"project": (S, "exact name of an ongoing project, or the new project's name"),
       "text": (S, "what was done and what is now possible"),
       "new_project": (B, "true only if this is a new project not in the ongoing list"),
