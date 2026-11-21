@@ -110,12 +110,32 @@ def _lines(lines, toks, keep=12):
     return hit[:keep], bool(hit)
 
 
+def due_when(due):
+    """'today' / 'tomorrow' / 'in 3 days (Tue 24 Nov)' / 'overdue by 2 days' / 'no date': computed, not guessed."""
+    if not due:
+        return "no date"
+    try:
+        d = datetime.date.fromisoformat(str(due)[:10])
+    except ValueError:
+        return str(due)
+    n = (d - datetime.date.today()).days
+    if n == 0:
+        return "today"
+    if n == 1:
+        return "tomorrow"
+    if n < 0:
+        return f"overdue by {-n} day" + ("s" if n < -1 else "")
+    return f"in {n} days ({d:%a %d %b})"
+
+
 def _dates_in(text):
     t, today, out = str(text).lower(), datetime.date.today(), []
     if re.search(r"yesterday|вчера|\bkecha\b", t):
         out.append(today - datetime.timedelta(days=1))
     if re.search(r"\btoday\b|сегодня|\bbugun\b", t):
         out.append(today)
+    if re.search(r"\btomorrow\b|завтра|\bertaga\b", t):
+        out.append(today + datetime.timedelta(days=1))
     for m in re.findall(r"\d{4}-\d{2}-\d{2}", t):
         try:
             out.append(datetime.date.fromisoformat(m))
@@ -365,10 +385,20 @@ def _gather(agent, kind, q, user_text, use_text=True):
     if want("tasks"):
         def task_rows():
             tt = task_times(agent.cfg)
-            rows = [{"id": r[0], "title": r[1], "due": r[2], "time": tt.get(_norm(r[1]), "")} for r in st.open_tasks()]
+            rows = [{"id": r[0], "title": r[1], "due": r[2], "when": due_when(r[2]), "time": tt.get(_norm(r[1]), "")}
+                    for r in st.open_tasks()]
+            if dates:                       # "today's tasks": the code decides the day, never the model
+                asked = {str(d) for d in dates}
+                on = [r for r in rows if r["due"] and str(r["due"])[:10] in asked]
+                if datetime.date.today() in dates:          # same as /today: overdue and undated count as today's
+                    on += [r for r in rows if not r["due"] or str(r["due"])[:10] < str(datetime.date.today())]
+                return {"due_on_asked_day": on or "none",
+                        "rule": "Only due_on_asked_day are tasks for that day. Other open tasks are for later days: "
+                                "never list them as that day's tasks.",
+                        "later_open_tasks": len(rows) - len(on)}
             hit, ok = _filter(rows, toks, 25)
             return None if (strict and toks and not ok) else hit
-        if kind == "tasks" or not (kind == "day" or dayq):
+        if kind == "tasks" or dates or not dayq:
             add("open_tasks", task_rows)
         if dates:
             add("tasks_done", lambda: _done_on(agent, dates))

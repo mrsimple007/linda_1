@@ -16,7 +16,9 @@ def open_tasks_text(agent, limit=40):
     """Open tasks with ids, today's first, so the model can match an update to a task by meaning."""
     today = str(datetime.date.today())
     rows = sorted(agent.store.open_tasks(), key=lambda r: (str(r[2] or "") != today, str(r[2] or "9999")))
-    return "; ".join(f"id {r[0]}: {r[1]}" + (f" (due {r[2]})" if r[2] else "") for r in rows[:limit]) or "none"
+    from linda.memory.recall import due_when
+    return "; ".join(f"id {r[0]}: {r[1]}" + (f" (due {r[2]}, {due_when(r[2])})" if r[2] else "")
+                     for r in rows[:limit]) or "none"
 
 
 def _can_retry(agent):
