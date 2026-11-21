@@ -8,7 +8,7 @@ CORE = {"task_add", "task_done", "timer", "plan", "stats", "practice_log", "song
         "delete_birthday", "save_note", "complete_goal", "remove_note", "journal_add", "log_progress",
         "time", "battery", "volume", "music", "mac", "open_app", "chess", "quiz", "remember",
         "calendar_agenda", "calendar_add", "log_driving", "telegram_send", "save_reference", "read_reference", "finance_report", "query_data",
-        "client_add", "client_update", "client_info", "client_list", "client_undo", "bot_stats"}
+        "client_add", "client_update", "client_info", "client_list", "client_undo", "bot_stats", "smart_home"}
 _T = {"string": "string", "integer": "integer", "boolean": "boolean"}
 
 # sent with EVERY message; everything else only when the message is about it (keeps each call far below the
