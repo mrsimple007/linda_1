@@ -4,11 +4,16 @@ config stt.language_mode:
   auto : Whisper detects the language (default, old behaviour). Costs a SECOND pass when it
          mislabels Uzbek as Turkish/Kazakh/etc.
   hint : trust the language selected in the UI (the `hint` argument). Always one pass, never retries.
-         Fastest, but if you speak another language than the selected one the result is wrong.
+  fast : one pass with any language token (whisper-large-v3-turbo still writes what was really said), then the
+         language is read from the text itself. ~0.75 s instead of 1.5 s (2.3 s for Uzbek in auto). Default.
 """
 import threading, time
 import numpy as np
 import mlx_whisper
+from .tts import detect_lang
+
+# Latin Uzbek in the prompt keeps Uzbek in Latin script ("Bugungi vazifalarim", not "бигунгі вазіфаларам")
+FAST_PROMPT = "Linda, Линда. Salom! Bugungi vazifalarim. Привет! Hello."
 
 ALLOWED = ("en", "ru", "uz")
 TURKIC = {"tr", "kk", "az", "tt", "ky", "tk", "ba"}   # Whisper mislabels Uzbek as these
@@ -21,8 +26,9 @@ HALLUCINATIONS |= {"рецепт смотрите под видео", "подп�
 class STT:
     def __init__(self, cfg):
         self.model = cfg["model"]
-        self.prompt = cfg.get("prompt", "Linda, Линда.")   # biases spelling of the wake word
-        self.mode = cfg.get("language_mode", "auto")        # auto | hint
+        self.mode = cfg.get("language_mode", "fast")        # fast | hint | auto
+        self.prompt = cfg.get("prompt") or (FAST_PROMPT if self.mode == "fast" else "Linda, Линда.")
+        self.last = "en"                                    # tie-breaker for Latin text with no clear markers
         self.lock = threading.Lock()
         self._no_ts = True                                  # try without_timestamps; disabled if unsupported
 
@@ -43,7 +49,8 @@ class STT:
 
     def _junk(self, r, text):
         low = text.lower().strip(" .!?,")
-        if low in HALLUCINATIONS or "субтитр" in low or low == self.prompt.lower().strip(" .!?,"):
+        if low in HALLUCINATIONS or "субтитр" in low or low == self.prompt.lower().strip(" .!?,") \
+                or (len(low) > 12 and low in self.prompt.lower()):          # silence echoing the prompt back
             return True
         if any(x in low for x in ("субтитр", "смотрите под видео", "подписывайтесь", "подписывайся")):
             return True
@@ -53,6 +60,13 @@ class STT:
 
     def transcribe(self, audio, hint=None):
         t0, passes = time.time(), 1
+        if self.mode == "fast":
+            r = self._run(audio, hint if hint in ALLOWED else "en")
+            text = r["text"].strip()
+            lang = detect_lang(text, self.last if self.last in ALLOWED else (hint or "en"))
+            self.last = lang
+            print(f"[stt] {time.time() - t0:.2f}s lang={lang} (from text) len={len(audio) / 16000:.1f}s")
+            return ("", lang) if self._junk(r, text) else (text, lang)
         if self.mode == "hint" and hint in ALLOWED:
             lang = hint
             r = self._run(audio, lang)

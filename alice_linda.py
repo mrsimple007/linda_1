@@ -27,6 +27,7 @@ def handle(agent, payload, owner_id):
     base = {"version": payload.get("version", "1.0")}
     req = payload.get("request", {})
     if not owner_id or uid != owner_id:                     # every request type, not only spoken ones
+        print(f"[alice] refused user_id={uid} (put your own in .env as ALICE_OWNER_ID)")
         return {**base, "response": {"text": "Нет доступа.", "end_session": True}}
     text = (req.get("original_utterance") or "").strip()
     if sess.get("new") or not text:
