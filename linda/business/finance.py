@@ -28,7 +28,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Callable, Optional
 
-ROOT = Path(__file__).resolve().parents[2]   # project root: telegram_linda -> linda -> project
+ROOT = Path(__file__).resolve().parents[2]   # project root: business -> linda -> project
 EPOCH = dt.date(1899, 12, 30)  # Google Sheets / Excel date serial 0
 
 # Same text as finance_schema.sql (kept there for running by hand). Built in, so no file is needed at runtime.

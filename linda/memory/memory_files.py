@@ -5,7 +5,7 @@ New entries go under their section heading (e.g. "## Yearly") or, without one, u
 in the format the UI already shows (ideas: "### Title" + "- **Status:** raw")."""
 import datetime, difflib, pathlib, re, shutil, threading
 try:
-    from .config import ROOT
+    from linda.config import ROOT
 except ImportError:                                           # standalone use
     ROOT = pathlib.Path(".")
 

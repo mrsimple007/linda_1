@@ -10,7 +10,7 @@ import re
 import time
 from typing import Optional
 
-from .finance import FinanceError, FinanceService, ParseError, Tx, fmt_amount
+from linda.business.finance import FinanceError, FinanceService, ParseError, Tx, fmt_amount
 
 YES = {"yes", "y", "ok", "ha", "da", "ага", "да", "👍"}
 NO = {"no", "n", "cancel", "/cancel", "yo'q", "yoq", "нет", "отмена"}

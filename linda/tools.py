@@ -13,9 +13,9 @@ import time
 
 from google.genai import types
 
-from .config import ROOT
-from .i18n import day_label, fmt_date
-from .router import Intent
+from linda.config import ROOT
+from linda.i18n import day_label, fmt_date
+from linda.router import Intent
 
 S, I, B = "string", "integer", "boolean"
 TG = {"telegram": (B, "true if the user also wants the result sent to their Telegram")}
@@ -558,8 +558,8 @@ def _web_answer(agent, a, text):
     agent._out(reply=agent._stream_say(agent.gemini.stream(q, agent._chat_system(), grounding=True), agent.lang))
 
 
-from . import memory_files  # noqa: E402  (kept here, as before, to avoid changing import order)
-from . import reference  # noqa: E402
+from linda.memory import memory_files  # noqa: E402  (kept here, as before, to avoid changing import order)
+from linda.memory import reference  # noqa: E402
 
 
 def _mem(name):
@@ -722,12 +722,12 @@ def _song_add(agent, a, text):
 
 
 def _bot_stats():
-    from .telegram_linda import bot_stats
+    from linda.business import bot_stats
     return bot_stats
 
 
 def _clients():
-    from .telegram_linda import clients
+    from linda.business import clients
     return clients
 
 
@@ -736,7 +736,7 @@ def _finance_report(agent, a, text):
     brain = getattr(agent, "brain", None)
     if tg is None or not getattr(brain, "extra_rules", ""):      # extra_rules is only set for Telegram
         return agent.say("error: finance reports are only available in Telegram, behind the PIN.")
-    from .telegram_linda import briefing
+    from linda.channels.telegram import briefing
     briefing.finance_request(agent, tg, str(a.get("question") or text))
     agent._fin_done = True
     agent.say("Done: the finance answer was sent to Telegram. Reply with one short line.")
@@ -762,7 +762,7 @@ SPECIAL = {
     "task_done": _task_done, "song_add": _song_add,
     "finance_report": _finance_report,
     "bot_stats": lambda ag, a, t: _bot_stats().bot_stats(ag, a, t),
-    "smart_home": lambda ag, a, t: __import__("linda.smart_home", fromlist=["tool"]).tool(ag, a, t),
+    "smart_home": lambda ag, a, t: __import__("linda.skills.smart_home", fromlist=["tool"]).tool(ag, a, t),
     "client_add": lambda ag, a, t: _clients().client_add(ag, a, t),
     "client_update": lambda ag, a, t: _clients().client_update(ag, a, t),
     "client_info": lambda ag, a, t: _clients().client_info(ag, a, t),
@@ -774,12 +774,12 @@ SPECIAL = {
 
 # ---- news / birthday list: built in code from RSS and the database (see briefing.py) ----
 def _news(agent, a, text):
-    from .telegram_linda import briefing
+    from linda.channels.telegram import briefing
     briefing.run_news(agent, a, text)
 
 
 def _birthday_list(agent, a, text):
-    from .telegram_linda import briefing
+    from linda.channels.telegram import briefing
     briefing.run_birthday_list(agent, a, text)
 
 
@@ -791,7 +791,7 @@ def execute(agent, name, args, text):
     print(f"[tool] {name} {args}")
     if name not in SPEC:
         raise KeyError(f"unknown tool {name}")
-    from . import safety
+    from linda import safety
     if not safety.request_is_supported(name, text):
         agent.store.audit_action(name, args, "rejected_unsubstantiated")
         agent.say({"en": "I may have misheard. Please repeat what you want me to do.",
@@ -1254,7 +1254,7 @@ def _gather(agent, kind, q, user_text, use_text=True):
         add("journal", journal)
 
     if kind == "conversations" or (kind == "all" and CONVO.search(both)):
-        from . import history
+        from linda.memory import history
         add("past_conversations", lambda: history.search(agent, qq or both, 5) or None)
 
     if kind in ("all", "notes") and toks and agent.docs and not dayq:

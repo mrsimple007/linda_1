@@ -1,7 +1,7 @@
 """Speech output. edge-tts (online, has ru/uz/en voices) with macOS `say` as fallback.
 Sentences are synthesized ahead of playback so speech flows without gaps."""
 import asyncio, concurrent.futures, hashlib, os, pathlib, queue, re, shutil, subprocess, tempfile, threading, time
-from .util import online
+from linda.util import online
 
 CACHE = pathlib.Path.home() / "Library" / "Caches" / "linda_tts"     # short phrases: synthesized once, then instant
 CACHE_MAX_CHARS = 80

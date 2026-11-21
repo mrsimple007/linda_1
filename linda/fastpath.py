@@ -1,8 +1,8 @@
 """Trivial commands answered in ~50 ms without any LLM. Anchored patterns only: 'what time is the
 meeting' must NOT match, so it goes to the LLM instead."""
 import re
-from . import system as sysm
-from .router import Intent
+from linda import system as sysm
+from linda.router import Intent
 
 I = lambda **kw: Intent(**kw)
 THANKS = {"en": "You're welcome.", "ru": "Пожалуйста.", "uz": "Marhamat."}
@@ -50,7 +50,7 @@ def normalize(text):
 
 
 def try_fast(agent, text, set_lang=lambda c: None):
-    from . import smart_home
+    from linda.skills import smart_home
     said = smart_home.quick(agent, text)                       # "выключи свет": no LLM, no quota
     if said:
         agent.say(said)

@@ -10,7 +10,7 @@ config stt.language_mode:
 import threading, time
 import numpy as np
 import mlx_whisper
-from .tts import detect_lang
+from linda.voice.tts import detect_lang
 
 # Latin Uzbek in the prompt keeps Uzbek in Latin script ("Bugungi vazifalarim", not "бигунгі вазіфаларам")
 FAST_PROMPT = "Linda, Линда. Salom! Bugungi vazifalarim. Привет! Hello."

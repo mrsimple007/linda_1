@@ -3,17 +3,17 @@ One central database; scheduler for briefings, practice reminders and evening ch
 import datetime, os, pathlib, re, sys, threading, time
 from dotenv import load_dotenv
 from linda.config import load
-from linda.audio import Listener, record_audio
-from linda.audio_analysis import SR
-from linda.stt import STT
-from linda.tts import Speaker
+from linda.voice.audio import Listener, record_audio
+from linda.voice.audio_analysis import SR
+from linda.voice.stt import STT
+from linda.voice.tts import Speaker
 from linda.store import Store
 from linda.router import Router
 from linda.agent import Agent
-from linda.docs import Docs
+from linda.memory.docs import Docs
 from linda.i18n import LANGS, t
 from linda.scheduler import run_loop
-from linda.telegram_linda.telegram import Telegram
+from linda.channels.telegram.telegram import Telegram
 from linda.util import online
 from linda import system
 
@@ -60,7 +60,7 @@ def main():
     cal = None
     if cfg["calendar"]["enabled"]:
         try:
-            from linda.calendar_skill import Calendar
+            from linda.skills.calendar_skill import Calendar
             cal = Calendar()
         except Exception as e:
             print("[calendar disabled]", e)

@@ -27,7 +27,7 @@ def due_jobs(jobs, store, now):
 def _run(agent, name):
     """True = done (or nothing to retry), False = failed and worth retrying."""
     if name == "telegram_morning":
-        from .telegram_linda import briefing
+        from linda.channels.telegram import briefing
         tg = getattr(agent, "tg", None)
         if tg is None:
             print("[scheduler] telegram_morning: Telegram is not configured")
@@ -64,8 +64,8 @@ def run_loop(cfg, store, agent):
 
 def calendar_watch(cfg, agent, cal):
     """Warns you `remind_minutes` before each event."""
-    from . import system
-    from .i18n import t
+    from linda import system
+    from linda.i18n import t
     mins, lang, seen = cfg["calendar"]["remind_minutes"], cfg["default_language"], set()
     while True:
         try:

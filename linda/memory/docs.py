@@ -40,7 +40,7 @@ class Docs:
         if s == ".pdf":
             from pypdf import PdfReader
             return "\n\n".join((pg.extract_text() or "") for pg in PdfReader(str(p)).pages)
-        from .files import docx_to_text
+        from linda.files import docx_to_text
         return docx_to_text(p)
 
     def _embed(self, texts, prefix):

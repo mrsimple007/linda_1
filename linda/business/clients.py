@@ -15,7 +15,7 @@ import re
 import sqlite3
 import time
 
-from .finance import FinanceError, SheetsAPI
+from linda.business.finance import FinanceError, SheetsAPI
 
 SCHEMA = """
 create table if not exists clients (
@@ -695,8 +695,8 @@ _SVC = {}
 def service(agent):
     """One ClientsService per process (created on first use; reads the clients section of config.yaml)."""
     if "svc" not in _SVC:
-        from .. import tools
-        from .briefing import llm_text
+        from linda import tools
+        from linda.channels.telegram.briefing import llm_text
         db = tools.ROOT / agent.cfg.get("db_path", "linda.db")
         svc = ClientsService.from_config(agent.cfg, db, llm=lambda s, u: llm_text(agent, s, u, temp=0))
         try:
@@ -717,7 +717,7 @@ def _tg(agent):
 
 
 def _send_card(agent, c, title_icon="👤", intro=""):
-    from .telegram import esc
+    from linda.channels.telegram.telegram import esc
     tg = _tg(agent)
     if not tg:
         return
@@ -800,7 +800,7 @@ def client_info(agent, a, text):
 
 
 def client_list(agent, a, text):
-    from .telegram import esc
+    from linda.channels.telegram.telegram import esc
     svc = service(agent)
     step = int(a["step"]) if str(a.get("step") or "").isdigit() else None
     if step is not None and step not in svc.steps:
@@ -845,7 +845,7 @@ def looks_like_client(text):
 def _run(agent, tg, fn, a, text, reply=False, title=("Clients", "👥")):
     """Run a client tool for a Telegram message. Cards go out from the tool; errors (and, with reply=True,
     the tool's own text) are sent as a short message."""
-    from .briefing import muted
+    from linda.channels.telegram.briefing import muted
     agent.in_telegram = True
     try:
         with muted(agent, text) as mute:

@@ -2,7 +2,7 @@
 data/journal/activity-YYYY-MM-DD.md (indexed by docs.py, so past conversations are searchable by meaning)."""
 import datetime, json, pathlib, re, sqlite3, threading
 
-from .config import ROOT
+from linda.config import ROOT
 
 _lock = threading.Lock()
 

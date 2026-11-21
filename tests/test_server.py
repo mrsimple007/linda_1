@@ -5,17 +5,17 @@ from types import SimpleNamespace as NS
 import numpy as np
 ROOT = next(p for p in pathlib.Path(__file__).resolve().parents if (p / "server.py").exists())
 sys.path.insert(0, str(ROOT))
-import linda.agent as agent_mod
+from linda import agent as agent_mod
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from linda import tools
 try:
-    from linda.calendar_skill import Event
+    from linda.skills.calendar_skill import Event
 except ModuleNotFoundError:       # calendar is optional; tests only need the record type
     import collections
     Event = collections.namedtuple("Event", "id title start end all_day")
 from linda.config import defaults_only
-from linda.docs import Docs
+from linda.memory.docs import Docs
 from linda.store import Store
 import server
 

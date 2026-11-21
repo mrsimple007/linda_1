@@ -6,14 +6,15 @@ from typing import Any, Callable
 import ollama
 from google.genai import types
 from pydantic import BaseModel
-from . import safety, system as sysm
-from .chess_game import ChessGame, speak_move
-from .domains import DocsMixin, PracticeMixin, QuizMixin, ReviewMixin, TaskMixin
-from .files import UnsupportedFile, latest_download, prepare_input, save_text, split_title
-from .i18n import LANG_NAME, LANGS, WHEN, day_label, fmt_date, fmt_today, join_names, t
-from .router import Intent
-from .util import online
-from .import fastpath, tools, memory_files
+from linda import safety, system as sysm
+from linda.skills.chess_game import ChessGame, speak_move
+from linda.domains import DocsMixin, PracticeMixin, QuizMixin, ReviewMixin, TaskMixin
+from linda.files import UnsupportedFile, latest_download, prepare_input, save_text, split_title
+from linda.i18n import LANG_NAME, LANGS, WHEN, day_label, fmt_date, fmt_today, join_names, t
+from linda.router import Intent
+from linda.util import online
+from linda import fastpath, tools
+from linda.memory import memory_files
 
 
 

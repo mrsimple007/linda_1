@@ -1,12 +1,12 @@
 """Domain modules mixed into Agent. They all read/write the SAME database (self.store)."""
 import datetime, json, pathlib, random, threading, time
 from pydantic import BaseModel
-from . import system as sysm
-from .audio_analysis import SR, analyze, tune
-from .i18n import LANG_NAME, LANGS, fmt_date, t
-from .planner import as_facts, build_plan, test_date
-from .quizbank import load_banks, parse_choice, pick
-from .router import Intent
+from linda import system as sysm
+from linda.voice.audio_analysis import SR, analyze, tune
+from linda.i18n import LANG_NAME, LANGS, fmt_date, t
+from linda.skills.planner import as_facts, build_plan, test_date
+from linda.skills.quizbank import load_banks, parse_choice, pick
+from linda.router import Intent
 import re
 
 QUIZ_STOP = ("stop", "quit", "стоп", "хватит", "to'xta", "toxta", "tugat")
@@ -210,7 +210,7 @@ class TaskMixin:
         return None
 
     def do_task_add(self, it, text):
-        from . import tools
+        from linda import tools
         title = (it.text or it.name or text).strip()
         tools.add_task_once(self, title, self._due(it), it.topic)
 
@@ -223,7 +223,7 @@ class TaskMixin:
             self.k("task_item", title=title, due=f", {fmt_date(datetime.date.fromisoformat(due), self.lang)}" if due else "")
 
     def do_task_done(self, it, text):
-        from . import tools
+        from linda import tools
         tools.finish_task(self, None, it.text or it.name or text)
 
 class DocsMixin:

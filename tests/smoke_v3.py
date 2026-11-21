@@ -3,14 +3,14 @@ import datetime, pathlib, sys, tempfile, time
 import numpy as np
 ROOT = next(p for p in pathlib.Path(__file__).resolve().parents if (p / "main.py").exists())
 sys.path.insert(0, str(ROOT))
-import linda.agent as agent_mod
-import linda.docs as docs_mod
+from linda import agent as agent_mod
+from linda.memory import docs as docs_mod
 from linda.agent import Agent
-from linda.audio_analysis import SR, analyze, tune
+from linda.voice.audio_analysis import SR, analyze, tune
 from linda.config import defaults_only
-from linda.docs import Docs, chunk
-from linda.planner import build_plan
-from linda.quizbank import load_banks, parse, parse_choice
+from linda.memory.docs import Docs, chunk
+from linda.skills.planner import build_plan
+from linda.skills.quizbank import load_banks, parse, parse_choice
 from linda.router import Intent
 from linda.scheduler import due_jobs
 from linda.store import Store

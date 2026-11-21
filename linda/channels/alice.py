@@ -7,7 +7,7 @@ ALICE_RULES = ("Channel: voice through a Yandex Station. Reply in 1-2 short sent
 
 
 def _think(agent, text):
-    from linda.telegram_linda.briefing import muted
+    from linda.channels.telegram.briefing import muted
     brain = agent.brain
     with muted(agent, text) as mute:
         if agent.chess and agent.chess_turn(text, cloud=False):           # a game in progress: moves, "подсказка", "стоп шахматы"

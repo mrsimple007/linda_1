@@ -6,7 +6,7 @@ import re
 from typing import Literal
 import ollama
 from pydantic import BaseModel
-from .util import online
+from linda.util import online
 
 
 class Intent(BaseModel):

@@ -96,8 +96,9 @@ def status():
 cmds = {"install": install, "uninstall": uninstall, "login-item": login_item, "status": status,
         "logs": lambda: os.execvp("tail", ["tail", "-n", "50", "-f", str(LOG)]),
         "show": lambda: print(plist_text())}
-cmd = next((a for a in sys.argv[1:] if not a.startswith("--")), None)
-if cmd in cmds:
-    cmds[cmd]()
-else:
-    print(__doc__)
+if __name__ == "__main__":                          # importing this module must never run a command
+    cmd = next((a for a in sys.argv[1:] if not a.startswith("--")), None)
+    if cmd in cmds:
+        cmds[cmd]()
+    else:
+        print(__doc__)

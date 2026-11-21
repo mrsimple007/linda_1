@@ -5,11 +5,12 @@ The agent loop lets the model READ the user's data (recall), act with a tool, re
 import contextvars, datetime, inspect, json, re, threading, time
 from concurrent.futures import ThreadPoolExecutor
 from google.genai import types
-from . import fastpath, memory_files, reference, tools
-from .providers import build_providers, openai_tools, pick
-from . import providers as providers_mod
-from .util import online
-from .web import CHANNEL, TURN
+from linda import fastpath, tools
+from linda.memory import memory_files, reference
+from linda.providers import build_providers, openai_tools, pick
+from linda import providers as providers_mod
+from linda.util import online
+from linda.web import CHANNEL, TURN
 
 
 SYSTEM = """You are {name}, {user}'s personal assistant and friend: warm, upbeat, a little playful, never stiff or corporate. Talk like a close friend who is also very capable: use his name now and then, celebrate small wins, add a quick encouraging word.
@@ -346,7 +347,7 @@ class Brain:
             want |= {"save_reference", "read_reference"}                     # long notes must always be possible
         if self.extra_rules:
             try:                                                             # a client's name carries no keyword
-                from .telegram_linda import clients
+                from linda.business import clients
                 if clients.service(ag).named_in(text):
                     want |= providers_mod.CLIENT_TOOLS
             except Exception as e:

@@ -71,4 +71,4 @@ class Listener:
                         self.heard_while_speaking = during
                         return pcm
                 voiced, active, silence, during = [], False, 0, False
-from .recorder import record_audio  # noqa: E402,F401  (kept for the classic main.py)
+from linda.voice.recorder import record_audio  # noqa: E402,F401  (kept for the classic main.py)

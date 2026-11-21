@@ -115,7 +115,7 @@ S = {
 }
 
 
-from .i18n_study import S_STUDY  # noqa: E402
+from linda.i18n_study import S_STUDY  # noqa: E402
 S.update(S_STUDY)
 
 

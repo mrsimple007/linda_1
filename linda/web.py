@@ -1,6 +1,6 @@
 """Bridge between Linda's synchronous code (worker threads) and the browser (asyncio WebSocket)."""
 import asyncio, base64, contextvars, re, threading, time
-from .tts import detect_lang
+from linda.voice.tts import detect_lang
 
 CHANNEL = contextvars.ContextVar("linda_channel", default=None)   # ordered-speech channel of a tool call
 TURN = contextvars.ContextVar("linda_turn", default=None)          # cancel Event of the current turn
@@ -176,7 +176,7 @@ class WebSpeaker:
             self.bridge.speak(text, lang)
         else:                                         # no browser tab open: speak on the Mac itself
             if self._fb is None:
-                from .tts import Speaker
+                from linda.voice.tts import Speaker
                 self._fb = Speaker(self.cfg["tts"])
             self._fb.say(text, lang)
 

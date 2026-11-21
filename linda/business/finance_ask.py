@@ -1,7 +1,7 @@
 """Read-only natural-language questions over linda.db. LLM writes SQL, code validates and runs it, LLM words the answer."""
 from __future__ import annotations
 import datetime as dt, json, re, sqlite3, time
-from .finance import FinanceError, fmt_amount
+from linda.business.finance import FinanceError, fmt_amount
 
 DOMAINS = {
   "finance": {"hint": "amounts are whole UZS; type income/expense; sheet my_finance=personal, company=business",

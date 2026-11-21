@@ -63,7 +63,7 @@ if sp.exists():
           f"data/songs.yaml ({len(songs)} songs)", "Still the 3 examples: replace them with your real repertoire")
 else:
     check(False, "data/songs.yaml", "python setup_data.py, then edit it")
-from linda.quizbank import load_banks  # noqa: E402
+from linda.skills.quizbank import load_banks  # noqa: E402
 banks = load_banks(data / "quizzes")
 real = [b for b in banks if "SAMPLE" not in b]
 check(True if real else None, f"quiz banks: {', '.join(f'{b} ({len(q)})' for b, q in banks.items()) or 'none'}",

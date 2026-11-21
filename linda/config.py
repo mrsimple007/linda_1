@@ -1,7 +1,7 @@
 """Loads config.yaml and fills every missing setting from built-in defaults,
 so an older or hand-edited config.yaml can never crash Linda."""
 import copy, pathlib, re, yaml
-from .util import parse_date
+from linda.util import parse_date
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 

@@ -14,7 +14,7 @@ class Item:
 
 
 def test_date(cfg):
-    from .util import parse_date
+    from linda.util import parse_date
     return parse_date((cfg.get("goals") or {}).get("driving_test_date"))
 
 

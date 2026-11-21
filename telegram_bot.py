@@ -126,11 +126,11 @@ def run(with_scheduler=False):
     load_dotenv(ROOT / ".env")
     from linda.config import load
     from linda.agent import Agent
-    from linda.telegram_linda.briefing import start_telegram
+    from linda.channels.telegram.briefing import start_telegram
     import server                                            # reuse build_deps: same Store/Docs/Gemini/Telegram
 
     cfg = load()
-    from linda import memory_files
+    from linda.memory import memory_files
     memory_files.init(cfg)
     cfg["calendar"]["enabled"] = False                       # no Calendar permission prompts from a background process
     deps = server.build_deps(cfg)

@@ -2,11 +2,11 @@
 import datetime, pathlib, sys, tempfile
 ROOT = next(p for p in pathlib.Path(__file__).resolve().parents if (p / "main.py").exists())
 sys.path.insert(0, str(ROOT))
-import linda.agent as agent_mod
+from linda import agent as agent_mod
 from linda.agent import Agent, EventSpec
 from linda.board import parse_fen, uci_squares
 try:
-    from linda.calendar_skill import Event
+    from linda.skills.calendar_skill import Event
 except ModuleNotFoundError:       # calendar is optional; tests only need the record type
     import collections
     Event = collections.namedtuple("Event", "id title start end all_day")

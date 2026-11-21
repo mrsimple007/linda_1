@@ -439,7 +439,7 @@ def telegram_text(agent, tg, text):
         question = text
     print(f"[route] bot stats -> {bot or 'both bots'}{' (refining the last question)' if ref else ''}")
     agent._last_stats = (question, bot, time.time())
-    from .clients import _run
+    from linda.business.clients import _run
     _run(agent, tg, bot_stats, {"question": question, "bot": bot}, question, title=("Bot stats", "📊"))
     return True
 
@@ -450,13 +450,13 @@ _SVC = {}
 
 def service(agent):
     if "svc" not in _SVC:
-        from .briefing import llm_text
+        from linda.channels.telegram.briefing import llm_text
         _SVC["svc"] = BotStats(agent.cfg, llm=lambda s, u: llm_text(agent, s, u, temp=0))
     return _SVC["svc"]
 
 
 def bot_stats(agent, a, text):
-    from .telegram import esc
+    from linda.channels.telegram.telegram import esc
     q = str(a.get("question") or text)
     try:
         answers = service(agent).ask(q, str(a.get("bot") or "").lower())

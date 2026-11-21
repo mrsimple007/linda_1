@@ -21,11 +21,11 @@ import xml.etree.ElementTree as ET
 import requests
 import os
 
-from .. import tools
-from ..i18n import fmt_date, fmt_today
-from .. import reference
-from .telegram import esc
-from .finance import FinanceError
+from linda import tools
+from linda.i18n import fmt_date, fmt_today
+from linda.memory import reference
+from linda.channels.telegram.telegram import esc
+from linda.business.finance import FinanceError
 
 
 
@@ -326,7 +326,7 @@ def muted(agent, text=""):
     with _LOCK:
         real, lang = agent.speaker, getattr(agent, "lang", "en")
         try:
-            from ..brain import reply_lang
+            from linda.brain import reply_lang
             agent.lang = reply_lang(text, agent.cfg.get("default_language", "en")) if text else agent.cfg.get("default_language", "en")
         except Exception:
             pass
@@ -780,7 +780,7 @@ def _related(agent, name, args, where):
     """'\n   🔗 data/notes/x.md · data/projects/y.md': saved files about the same thing ('' if none)."""
     if agent is None or name not in LINKED:
         return ""
-    from .. import links
+    from linda.memory import links
     path = agent.data_dir / where[5:] if where.startswith("data/") else None
     found = links.related(agent, args.get("text") or "", exclude=[path] if path else [])
     if not found:
@@ -793,7 +793,7 @@ def _related(agent, name, args, where):
     return "\n   🔗 " + " · ".join(f"<code>{esc(reference.rel(agent, p))}</code>" for p in found)
 
 
-from .. import providers as _providers
+from linda import providers as _providers
 _providers.TOOL_RULES.update({
     "save_reference": "Longer information (course outlines, lesson or topic lists, schedules, resources, how-tos, "
         "checklists) and facts about an ongoing course or project -> save_reference: topic = the subject, text = the "
@@ -882,7 +882,7 @@ def _converse(agent, tg, text, in_window):
 
 def _remember_turn(agent, brain, text, reply, changes):
     """Keep the chat (searchable later) and re-index files this turn changed."""
-    from .. import history
+    from linda.memory import history
     used = [n for n, _, _ in brain.tool_log]
     shown = reply + (" | " + " | ".join(changes) if changes else "")
     history.log_turn(agent.cfg, text, getattr(agent, "lang", "en"), used, shown, channel="telegram")
@@ -891,7 +891,7 @@ def _remember_turn(agent, brain, text, reply, changes):
 
 def _free_text(agent, tg, text):
     t = S[_lang(agent)]
-    from .. import smart_home
+    from linda.skills import smart_home
     said = smart_home.quick(agent, text)
     if said:
         return tg.send(said)
@@ -1051,11 +1051,11 @@ def _command(agent, tg, cmd, rest):
     if cmd == "today":
         return _today(agent, tg)
     if cmd == "stats":
-        from . import bot_stats, clients
+        from linda.business import bot_stats, clients
         q = rest or "new users and active users today, yesterday and this month"
         return clients._run(agent, tg, bot_stats.bot_stats, {"question": q}, q)
     if cmd in ("client", "clients", "client_undo"):
-        from . import clients
+        from linda.business import clients
         return clients.telegram_command(agent, tg, cmd, rest)
     if cmd == "news":
         return _news(agent, tg)
@@ -1084,7 +1084,7 @@ def _command(agent, tg, cmd, rest):
 
 import hmac
 
-from .finance import fmt_amount
+from linda.business.finance import fmt_amount
 
 FIN_WORD = re.compile(
     r"\b(revenue|income|expenses?|expences?|spend|spent|spending|earned|profit|finances?|purchases?|bought|"
@@ -1267,7 +1267,7 @@ def _pin_like(t, pin):
         return False
     if any(ch.isdigit() for ch in pin) and not any(ch.isdigit() for ch in t):
         return False
-    from . import bot_stats                       # months, bot names, stats/finance words are never a PIN
+    from linda.business import bot_stats                       # months, bot names, stats/finance words are never a PIN
     return not (bot_stats.REFINE.search(t) or bot_stats.STATS_Q.search(t) or FIN_WORD.search(t)
                 or re.search(r"quizzer|slides?|bots?", t, re.I))
 
@@ -1380,7 +1380,7 @@ def _typing(tg, status=None):
 def on_telegram_text(agent, tg, text):
     t = text.strip()
     quick = t.startswith("/") and t.split()[0].lower() in ("/start", "/help", "/tasks", "/notes", "/clients", "/birthdays")
-    from . import bot_stats
+    from linda.business import bot_stats
     status = None if quick else (STATUS["stats"] if bot_stats.wants_stats(agent, t) else STATUS["default"])
     with _typing(tg, status):
         return _on_telegram_text(agent, tg, text)
@@ -1405,10 +1405,10 @@ def _on_telegram_text(agent, tg, text):
         agent._fin_pending = None                            # not a PIN: the PIN question is dropped, route normally
     if not getattr(agent, "_fin_pending", None):          # a PIN reply must reach the finance gate first
         try:
-            from . import clients
+            from linda.business import clients
             if clients.telegram_text(agent, tg, t):          # before finance: "+998 ..." is not an amount
                 return
-            from . import bot_stats
+            from linda.business import bot_stats
             if bot_stats.telegram_text(agent, tg, t):        # before finance: "payments in Quizzer" needs no PIN
                 return
         except Exception as e:
@@ -1438,8 +1438,8 @@ def start_telegram(agent, tg):
 
     # 1) finance: entries, undo, /summary (must not depend on the SQL helper)
     try:
-        from linda.telegram_linda.finance import FinanceService
-        from .finance_chat import FinanceChat
+        from linda.business.finance import FinanceService
+        from linda.business.finance_chat import FinanceChat
         agent.finance = FinanceService.from_config(
             chooser=lambda system, user: llm_text(agent, system, user, temp=0))
         agent.finance_chat = FinanceChat(agent.finance)
@@ -1448,7 +1448,7 @@ def start_telegram(agent, tg):
 
     # 2) general read-only SQL questions (finance, tasks, practice, ...)
     try:
-        from .finance_ask import DataAsk, DOMAINS
+        from linda.business.finance_ask import DataAsk, DOMAINS
         fin = getattr(agent, "finance", None)
         db_path = fin.db_path if fin else str(tools.ROOT / agent.cfg.get("db_path", "linda.db"))
         agent.data_ask = DataAsk(

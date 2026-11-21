@@ -3,7 +3,7 @@ import pathlib, sys
 from types import SimpleNamespace
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.modules.setdefault("mlx_whisper", SimpleNamespace(transcribe=None))
-from linda.stt import STT
+from linda.voice.stt import STT
 
 
 def recognized(text, language="en", segments=None):

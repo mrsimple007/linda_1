@@ -14,12 +14,13 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from linda import memory_files, scheduler
+from linda.memory import memory_files
+from linda import scheduler
 from linda.agent import Agent
-from linda.audio_analysis import SR
+from linda.voice.audio_analysis import SR
 from linda.brain import Brain
 from linda.config import ROOT, load
-from linda.planner import build_plan
+from linda.skills.planner import build_plan
 from linda.web import Bridge, Client, Timer, WebBoard, WebSpeaker
 from linda import tools
 
@@ -33,9 +34,9 @@ _STOP = re.compile(
 
 
 def build_deps(cfg):
-    from linda.docs import Docs
+    from linda.memory.docs import Docs
     from linda.store import Store
-    from linda.telegram_linda.telegram import Telegram
+    from linda.channels.telegram.telegram import Telegram
     store = Store(cfg["db_path"])
     data_dir = pathlib.Path(cfg["data_dir"])
     n = store.import_songs(data_dir / "songs.yaml")
@@ -49,7 +50,7 @@ def build_deps(cfg):
     cal = None
     if cfg["calendar"]["enabled"]:
         try:
-            from linda.calendar_skill import Calendar
+            from linda.skills.calendar_skill import Calendar
             cal = Calendar()
         except Exception as e:
             print("[calendar disabled]", e)
@@ -245,7 +246,7 @@ _TURN = {"replies": [], "tools": []}                          # what happened du
 
 def log_turn(cfg, text, lang, tools_used, reply):
     """Remember what was asked and done (linda/history.py: linda.db `history` + journal/activity-*.md)."""
-    from linda import history
+    from linda.memory import history
     history.log_turn(cfg, text, lang, tools_used, reply, channel="voice")
 
 
@@ -420,7 +421,7 @@ def create_app(cfg, deps, start_background=True, synth=None, recorder=None):
     bridge.send = send_and_note
     speaker = WebSpeaker(bridge, cfg)
     if local_ears:
-        from linda.tts import Speaker
+        from linda.voice.tts import Speaker
         speaker = LocalSpeaker(bridge, speaker, Speaker(cfg["tts"]))
     cur = {"lang": cfg["default_language"]}                    # language the user picked (used as a Whisper hint)
     ears_ref = {"ears": None, "listener": None}                # filled in by lifespan when local ears start
@@ -439,7 +440,7 @@ def create_app(cfg, deps, start_background=True, synth=None, recorder=None):
         if lis:
             lis.paused = True                                  # same for the local microphone
         try:
-            from linda.recorder import record_audio
+            from linda.voice.recorder import record_audio
             return (recorder or record_audio)(secs, SR, device=cfg["audio"].get("music_device", ""))
         finally:
             if lis:
@@ -521,9 +522,9 @@ def create_app(cfg, deps, start_background=True, synth=None, recorder=None):
     def start_local_ears(loop):
         """Mic -> VAD -> Whisper -> wake word, in background threads. Never takes the server down if the mic fails."""
         try:
-            from linda.audio import Listener
-            from linda.ears import Ears
-            from linda.stt import STT
+            from linda.voice.audio import Listener
+            from linda.voice.ears import Ears
+            from linda.voice.stt import STT
             listener = Listener(cfg["audio"], speaker.is_speaking)
 
             def on_command(text, lang):                        # called from the ears thread
@@ -579,7 +580,7 @@ def create_app(cfg, deps, start_background=True, synth=None, recorder=None):
                 print(f"[docs] indexed {deps.docs.index()} new/changed files")
             threading.Thread(target=index_docs, daemon=True).start()
             if deps.tg:                                          # Telegram: /start /news ... and filing what you write
-                from linda.telegram_linda import briefing
+                from linda.channels.telegram import briefing
                 briefing.start_telegram(agent, deps.tg)
             tasks.append(asyncio.create_task(refresher()))
             if local_ears:
@@ -648,7 +649,7 @@ def create_app(cfg, deps, start_background=True, synth=None, recorder=None):
             client.q.put_nowait(None)
             writer.cancel()
     import hmac
-    import alice_linda as alice_mod
+    from linda.channels import alice as alice_mod
     from fastapi.responses import JSONResponse
     agent.brain = brain                  # alice.py uses agent.brain
 
@@ -658,7 +659,7 @@ def create_app(cfg, deps, start_background=True, synth=None, recorder=None):
         if not expected or not hmac.compare_digest(secret, expected):
             return JSONResponse({"error": "not found"}, status_code=404)
         # Mac mic off while an Alisa conversation is open: Yandex doesn't say when it closes, so every request
-        # keeps it off for 5 more minutes; 'хватит' ends it sooner (alice_linda.handle)
+        # keeps it off for 5 more minutes; 'хватит' ends it sooner (linda/channels/alice.py)
         agent.alice_until = time.time() + 300
         return alice_mod.handle(agent, payload, os.getenv("ALICE_OWNER_ID", ""))
 

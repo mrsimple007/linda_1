@@ -9,8 +9,16 @@ Creates the data/ folders and starter files. It never overwrites anything that a
   data/journal/          daily entries (Linda also writes here: reviews, 'add to journal')"""
 import datetime, pathlib, shutil
 
-ROOT = pathlib.Path(__file__).resolve().parent
-D = ROOT / "data"
+ROOT = pathlib.Path(__file__).resolve().parents[1]           # project root
+
+
+def data_dir():
+    """The data folder from config.yaml (data_dir), e.g. ~/LindaData/data."""
+    try:
+        from linda.config import load
+        return pathlib.Path(load()["data_dir"]).expanduser()
+    except Exception:
+        return ROOT / "data"
 
 FILES = {
     "songs.yaml": '''# Your repertoire. Linda imports this at every start (new songs are added, edited ones updated).
@@ -55,16 +63,22 @@ One file or folder per project: goals, decisions, setup steps, TODOs. Example qu
     f"journal/{datetime.date.today()}.md": f"- {datetime.datetime.now():%H:%M} Set up Linda's data folders.\n",
 }
 
-for rel, content in FILES.items():
-    p = D / rel
-    p.parent.mkdir(parents=True, exist_ok=True)
-    if not p.exists():
-        p.write_text(content, encoding="utf-8")
-        print("created", p.relative_to(ROOT))
-for folder in ("notes", "papers", "projects", "journal", "quizzes"):
-    (D / folder).mkdir(parents=True, exist_ok=True)
-env, ex = ROOT / ".env", ROOT / ".env.example"
-if not env.exists() and ex.exists():
-    shutil.copy(ex, env)
-    print("created .env (fill in your keys)")
-print("\nNext: edit data/songs.yaml, set goals.driving_test_date in config.yaml, then: python main.py")
+def main():
+    D = data_dir()
+    for rel, content in FILES.items():
+        p = D / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if not p.exists():
+            p.write_text(content, encoding="utf-8")
+            print("created", p)
+    for folder in ("notes", "papers", "projects", "journal", "quizzes"):
+        (D / folder).mkdir(parents=True, exist_ok=True)
+    env, ex = ROOT / ".env", ROOT / ".env.example"
+    if not env.exists() and ex.exists():
+        shutil.copy(ex, env)
+        print("created .env (fill in your keys)")
+    print("\nNext: edit data/songs.yaml, set goals.driving_test_date in config.yaml, then: python main.py")
+
+
+if __name__ == "__main__":                                     # importing this module must never create files
+    main()

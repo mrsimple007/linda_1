@@ -1,7 +1,7 @@
 """OpenAI-compatible providers (Groq, Mistral). Each has its own cooldown. Tool list = CORE + recall."""
 import json, os, re, time
 from openai import OpenAI
-from . import tools
+from linda import tools
 
 # Read-only tools are gone: recall covers them. Only actions that write or do something stay.
 CORE = {"task_add", "task_done", "timer", "plan", "stats", "practice_log", "song_add", "add_birthday",

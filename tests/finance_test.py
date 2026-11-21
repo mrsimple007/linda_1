@@ -1,8 +1,8 @@
 """Finance tests with a fake Google Sheets API (no network, no credentials).  python tests/test_finance.py"""
 import datetime as dt, os, re, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from linda.telegram_linda.finance import (BlockSheet, FinanceError, FinanceService, FlatSheet, ParseError, parse_message, to_serial)
-from linda.telegram_linda.finance_chat import FinanceChat
+from linda.business.finance import BlockSheet, FinanceError, FinanceService, FlatSheet, ParseError, parse_message, to_serial
+from linda.business.finance_chat import FinanceChat
 
 TODAY = dt.date(2026, 11, 17)
 def p(t, **k): return parse_message(t, today=TODAY, **k)
