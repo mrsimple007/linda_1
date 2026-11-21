@@ -37,7 +37,7 @@ check(True if sys.version_info >= (3, 10) else None, "Python version",
 
 print("\n-- .env (secrets) --")
 key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
-check(bool(key) and "your_" not in key, "GEMINI_API_KEY", "Create a key at aistudio.google.com/apikey and put GEMINI_API_KEY=your_gemini_api_key
+check(bool(key) and "your_" not in key, "GEMINI_API_KEY", "Create a key at aistudio.google.com/apikey and put GEMINI_API_KEY=... into .env")
 tok, chat = os.getenv("TELEGRAM_BOT_TOKEN", ""), os.getenv("TELEGRAM_CHAT_ID", "")
 check(bool(tok) and "token_from" not in tok, "TELEGRAM_BOT_TOKEN", "@BotFather -> /newbot -> paste the token into .env")
 check(bool(chat) and "filled_by" not in chat, "TELEGRAM_CHAT_ID", "Start your bot in Telegram, then run: python telegram_setup.py")
