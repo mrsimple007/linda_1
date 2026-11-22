@@ -33,6 +33,11 @@ LOOKUP = re.compile(r"\b(when|what|who|where|which|how many|how old|tell me|do y
                     r"birthdays?|tasks?|goals?|songs?|brother|sister|mother|father|friend|cousin|uncle|aunt|"
                     r"aka|uka|opa|qachon|kim|nima|kecha|bugun)\b|когда|кто|что|где|сколько|вчера|сегодня|брат|сестр|друг",
                     re.I)
+# "what did I do today", "what have I done", "что я сделал", "bugun nima qildim": a summary of what was DONE
+DID_Q = re.compile(r"\b(what (?:did|have) i (?:do|done|did|accomplish|achieve|finish)|what i did|i did today|done today|"
+                   r"my day|how was my day|accomplish|achiev)|что я (?:сделал|делал)|чем я занимал|как прош[её]л|"
+                   r"nima qildim|nima ish qildim|bajardim|qanday o'?tdi", re.I)
+DONE_KEYS = ("tasks_done", "practice", "progress_log", "journal")
 CONVO = re.compile(r"\b(did i (?:say|tell|mention|ask)|i (?:said|told you|mentioned)|we (?:talked|discussed|spoke|decided)|"
                    r"last time|earlier (?:today|you said)|you (?:said|told me)|our (?:chat|conversation)|"
                    r"aytgan edim|gaplashgan|gaplash\w*|aytdim)\b|говорил|обсужда|разговор|ты сказал", re.I)
@@ -263,7 +268,8 @@ def _gather(agent, kind, q, user_text, use_text=True):
     dates = [] if kind == "advice" else _dates_in(f"{q} {user_text}")
     if dates and kind in DAY_STORES - {"tasks"}:
         kind = "day"                    # one call covers every date-bound store; kind='tasks' stays a task listing
-    dayq = bool(dates) and not toks     # "what did I do yesterday": date stores only
+    did = bool(dates) and bool(DID_Q.search(f"{q} {user_text}"))
+    dayq = bool(dates) and (not toks or did)     # "what did I do yesterday": date stores only
     strict = kind == "all"              # in 'all' mode a section appears only if it matched
     both = f"{q} {user_text}"
     caps = kind == "capabilities" or bool(CAPS.search(both))
@@ -474,6 +480,12 @@ def _gather(agent, kind, q, user_text, use_text=True):
                               for h in agent.docs.search(qq, 10, None)
                               if not pathlib.Path(h.path).name.startswith(("activity-", "root_"))][:3])
 
+    if did:                                          # "what did I do": only what was DONE that day, nothing open
+        done = {k: out.pop(k) for k in DONE_KEYS if k in out}
+        out.pop("open_tasks", None)
+        out["rule"] = ("The user asks what they DID. Answer with EVERY item in tasks_done (finished tasks), practice, "
+                       "progress_log and journal for that day, not only what was said in this chat.")
+        out.update(done)
     if strict and set(out) <= {"today", "asked_dates"}:
         out["found"] = "nothing matched"
     return out

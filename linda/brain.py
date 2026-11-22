@@ -339,7 +339,8 @@ class Brain:
     def _agent_loop(self, text):
         ag, ev, acted, last, done = self.agent, self.cancel, False, [], []
         L = LANG_NAME.get(ag.lang, "English")
-        defs = list(pick(self.oa_tools, text))
+        prev = next((m for r, m in reversed(self.history) if r == "user"), "")   # "15 min each" follows "I practiced X"
+        defs = list(pick(self.oa_tools, f"{text}\n{prev}"))
         if not any(_tool_name(d) == "recall" for d in defs):
             defs += [d for d in self.oa_tools if _tool_name(d) == "recall"]
         want = set()
