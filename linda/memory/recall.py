@@ -385,8 +385,14 @@ def _gather(agent, kind, q, user_text, use_text=True):
     if want("tasks"):
         def task_rows():
             tt = task_times(agent.cfg)
-            rows = [{"id": r[0], "title": r[1], "due": r[2], "when": due_when(r[2]), "time": tt.get(_norm(r[1]), "")}
-                    for r in st.open_tasks()]
+            from linda.tools.tasks import split_deadline
+            rows = []
+            for r in st.open_tasks():
+                _, dl, has_time = split_deadline(r[1], agent.cfg)
+                row = {"id": r[0], "title": r[1], "due": r[2], "when": due_when(r[2]), "time": tt.get(_norm(r[1]), "")}
+                if dl is not None and has_time:          # converted from the title's time zone: say this one
+                    row["deadline_local_time"] = f"{dl:%d.%m.%Y %H:%M} Tashkent time"
+                rows.append(row)
             if dates:                       # "today's tasks": the code decides the day, never the model
                 asked = {str(d) for d in dates}
                 on = [r for r in rows if r["due"] and str(r["due"])[:10] in asked]

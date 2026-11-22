@@ -76,12 +76,9 @@ def _tasks(agent, tg):
     rows = agent.store.open_tasks()
     if not rows:
         return tg.send_styled("Tasks", icon="✅", intro=t["no_tasks"])
-    tt = tools.task_times(agent.cfg)
-    lines = []
-    for r in rows[:30]:
-        when = " ".join(x for x in (_due_label(r[2], today), tt.get(tools._norm(r[1]), "")) if x)
-        lines.append(f"• {esc(r[1])}" + (f" <i>({esc(when)})</i>" if when else ""))
-    return tg.send_styled(f"Tasks ({len(rows)})", [("", lines)], icon="✅")
+    sections = [(head, [f"• {esc(title)}" + (f" <i>({esc(extra)})</i>" if extra else "") for title, extra in items])
+                for head, items in tools.task_groups(agent, today, rows[:40])]
+    return tg.send_styled(f"Tasks ({len(rows)})", sections, icon="✅")
 
 
 def _news(agent, tg):

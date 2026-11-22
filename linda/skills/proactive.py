@@ -3,13 +3,13 @@
 Run by the scheduler (config.yaml `schedule`: reminders, client_followups, weekly_review) or by hand with
 /reminders, /followups, /review. Every number and date here is computed in code; no LLM is involved.
 Settings (config.yaml `proactive`, all optional):
-  reminder_days: [7, 3, 1, 0]   remind this many days before a task's due date (0 = on the day)
+  remind_within_days: 7         list every task due within this many days (today included)
   overdue_days: 3               keep reminding about an overdue task for this many days
   client_idle_days: 7           a client with no progress for this long is listed in the follow-ups
   review_finance: false         add money in / out to the weekly review (finance is PIN-protected in chat)"""
 import datetime, html, pathlib, re, sqlite3, time
 
-DEFAULTS = {"reminder_days": [7, 3, 1, 0], "overdue_days": 3, "client_idle_days": 7, "review_finance": False}
+DEFAULTS = {"remind_within_days": 7, "overdue_days": 3, "client_idle_days": 7, "review_finance": False}
 WEEK_KEY = "weekly_plans_until"        # store key: until when a reply counts as next week's plans
 WEEK_HINT = ("The user is answering the weekly review question 'what matters most next week'. Each plan they list "
              "is a NEW task (task_add, one call per plan; due only if they name a day). Never re-add an open task.")
@@ -40,20 +40,23 @@ def _when(n):
 
 # ---------------------------------------------------------------- 1. reminders
 def reminders(agent, today=None):
-    """-> (title, sections) or None. Tasks hitting a reminder day, overdue tasks, today's / tomorrow's birthdays."""
+    """-> (title, sections) or None. Tasks due within remind_within_days, overdue ones, today's / tomorrow's birthdays."""
+    from linda.tools.tasks import split_deadline
     c, today = _cfg(agent), today or datetime.date.today()
-    days, overdue = {int(x) for x in c["reminder_days"]}, int(c["overdue_days"])
+    within, overdue = int(c["remind_within_days"]), int(c["overdue_days"])
     soon, late = [], []
     for r in agent.store.open_tasks():
+        title, dl, has_time = split_deadline(r[1], agent.cfg)
         try:
-            due = datetime.date.fromisoformat(str(r[2])[:10]) if r[2] else None
+            due = dl.date() if dl else (datetime.date.fromisoformat(str(r[2])[:10]) if r[2] else None)
         except ValueError:
             due = None
         if not due:
             continue
         n = (due - today).days
-        line = f"• {_esc(r[1])} <i>({_when(n)}, {due:%a %d %b})</i>"
-        if n in days:
+        at = f", until {dl:%H:%M}" if has_time else ""
+        line = f"• {_esc(title)} <i>({_when(n)}, {due:%a %d.%m}{at})</i>"
+        if 0 <= n <= within:
             soon.append((n, line))
         elif -overdue <= n < 0:
             late.append((n, line))
@@ -211,13 +214,14 @@ def weekly_review(agent, today=None):
     start, end = _week(today)
     sections = []
     done = _done_tasks(agent, start, end)
-    sections.append((f"✅ Done ({len(done)})", [f"• {_esc(t)}" for t in done[:12]] or ["<i>No tasks closed this week.</i>"]))
+    lines = [f"• {_esc(t)}" for t in done[:12]] + ([f"<i>…and {len(done) - 12} more</i>"] if len(done) > 12 else [])
+    sections.append((f"✅ Done ({len(done)})", lines or ["<i>No tasks closed this week.</i>"]))
     prog = _progress(agent, start, end)
     if prog:
         lines = []
         for proj, items in prog.items():
             lines.append(f"<b>{_esc(proj)}</b> ({len(items)})")
-            lines += [f"• {_esc(x[:140])}" for x in items[:3]]
+            lines += [f"• {_esc(re.sub(r'~~|\s*-\s*\d{4}$', '', x)[:140])}" for x in items[:3]]
         sections.append(("🛠 Progress", lines))
     try:
         bots = _bots(agent)
@@ -234,14 +238,16 @@ def weekly_review(agent, today=None):
         money = _money(agent, start, end)
         if money:
             sections.append(("💰 Money", [f"{_esc(s)} · {t}: {_n(v)}" for s, t, v in money]))
+    from linda.tools.tasks import split_deadline
     nxt = []
     for r in agent.store.open_tasks():
+        title, dl, has_time = split_deadline(r[1], agent.cfg)
         try:
-            due = datetime.date.fromisoformat(str(r[2])[:10]) if r[2] else None
+            due = dl.date() if dl else (datetime.date.fromisoformat(str(r[2])[:10]) if r[2] else None)
         except ValueError:
             due = None
         if due and today < due <= today + datetime.timedelta(days=7):
-            nxt.append((due, f"• {_esc(r[1])} <i>({due:%a %d %b})</i>"))
+            nxt.append((due, f"• {_esc(title)} <i>({due:%a %d.%m}" + (f", until {dl:%H:%M}" if has_time else "") + ")</i>"))
     sections.append(("📅 Next 7 days", [l for _, l in sorted(nxt)] or ["<i>No deadlines.</i>"]))
     question = "What matters most next week? Reply with your plans and I'll add them as tasks."
     return f"Weekly review · {start:%d %b} – {end:%d %b}", sections, question

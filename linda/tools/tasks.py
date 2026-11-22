@@ -367,3 +367,69 @@ def _task_add(agent, a, text):
 # names from the sibling modules (imported last, so mutual use works)
 from linda.tools.registry import LANG_WORDS  # noqa: E402
 from linda.memory.recall import _done_on  # noqa: E402
+
+
+# ---------------------------------------------------------------- grouped task lists (/tasks, reminders, review)
+import zoneinfo  # noqa: E402
+
+TZ_NAMES = {"cet": "Europe/Berlin", "cest": "Europe/Berlin", "berlin": "Europe/Berlin", "germany": "Europe/Berlin",
+            "msk": "Europe/Moscow", "moscow": "Europe/Moscow", "utc": "UTC", "gmt": "UTC", "eet": "Europe/Helsinki",
+            "eest": "Europe/Helsinki", "tashkent": "Asia/Tashkent", "uzt": "Asia/Tashkent", "kst": "Asia/Seoul",
+            "jst": "Asia/Tokyo", "est": "America/New_York", "edt": "America/New_York", "pst": "America/Los_Angeles"}
+DEADLINE = re.compile(r"\s*\(?\s*(?:deadline|until|due|muddat|срок|до)\s*:?\s*(\d{1,2})[./](\d{1,2})[./](\d{4})"
+                      r"(?:\s*,?\s*(\d{1,2}):(\d{2}))?\s*([A-Za-z]{2,8})?\s*\)?", re.I)
+
+
+def local_tz(cfg):
+    return zoneinfo.ZoneInfo(cfg.get("timezone") or (cfg.get("bot_stats") or {}).get("timezone") or "Asia/Tashkent")
+
+
+def split_deadline(title, cfg):
+    """'Apply: X (deadline 31.01.2027 12:00 CET)' -> ('Apply: X', datetime in local time, True if a time was given).
+    No deadline in the title -> (title, None, False). An unknown time zone is taken as local time."""
+    m = DEADLINE.search(title)
+    if not m:
+        return title, None, False
+    d, mo, y, h, mi, zone = m.groups()
+    try:
+        tz = zoneinfo.ZoneInfo(TZ_NAMES.get((zone or "").lower(), "")) if zone and (zone or "").lower() in TZ_NAMES \
+            else local_tz(cfg)
+        dt = datetime.datetime(int(y), int(mo), int(d), int(h or 0), int(mi or 0), tzinfo=tz).astimezone(local_tz(cfg))
+    except (ValueError, zoneinfo.ZoneInfoNotFoundError):
+        return title, None, False
+    clean = (title[:m.start()] + title[m.end():]).strip(" -–,;")
+    return clean or title, dt, bool(h)
+
+
+def task_groups(agent, today=None, rows=None):
+    """[(header, [line, ...])]: 'Today' (no date, due today, overdue) first, then one group per date.
+    A deadline written in the title (with a time zone) is shown in local time in the group header."""
+    today = today or datetime.date.today()
+    tt = task_times(agent.cfg)
+    groups = {}                                          # date or None -> {"lines": [], "time": None}
+    for r in (rows if rows is not None else agent.store.open_tasks()):
+        title, dl, has_time = split_deadline(r[1], agent.cfg)
+        try:
+            due = datetime.date.fromisoformat(str(r[2])[:10]) if r[2] else None
+        except ValueError:
+            due = None
+        if dl is not None:
+            due = dl.date()
+        key = None if (due is None or due <= today) else due
+        g = groups.setdefault(key, {"lines": [], "time": None})
+        at = tt.get(_norm(r[1]), "")
+        extra = [f"⚠️ overdue since {due:%d.%m}" if due and due < today else "", at]
+        g["lines"].append((title, " · ".join(x for x in extra if x)))
+        if has_time:
+            g["time"] = dl if g["time"] is None else min(g["time"], dl)
+    out = []
+    for key in sorted(groups, key=lambda k: (k is not None, k or today)):
+        g = groups[key]
+        if key is None:
+            head = "Today"
+        elif g["time"] is not None:
+            head = f"Until {g['time']:%d.%m.%Y %H:%M} ({str(local_tz(agent.cfg)).split('/')[-1]})"
+        else:
+            head = f"{key:%d.%m.%Y} ({key:%a})" + (" · tomorrow" if key == today + datetime.timedelta(days=1) else "")
+        out.append((head, g["lines"]))
+    return out
