@@ -112,3 +112,122 @@ def speak_move(board, move, lang):
     sq = chess.square_name(move.to_square)
     take = f" {TAKES[lang]}" if board.is_capture(move) else ""
     return f"{piece}{take} {sq[0]} {sq[1]}"
+
+
+# ---------- the chess session inside Agent (agent.chess, agent.bw) ----------
+CHESS_STOP = ("stop", "resign", "quit", "стоп", "хватит", "сдаюсь", "to'xta", "toxta", "tugat")
+CHESS_UNDO = ("undo", "take back", "назад", "верни ход", "qaytar", "orqaga")
+CHESS_HINT = ("hint", "best move", "подсказ", "maslahat")
+
+
+class BoardWindow:
+    def __init__(self):
+        # Initialize your window properties here
+        pass
+
+
+class ChessMixin:
+    """Voice chess turns: start, stop, undo, hint, your move, Linda's move. The board shows in agent.bw."""
+
+    def _show(self):
+        g = self.chess
+        g.show()
+        if self.bw:
+            last = g.board.peek().uci() if g.board.move_stack else None
+            status = "Your move" if g.board.turn == g.user_white else "Linda is thinking…"
+            if g.board.is_check():
+                status += " – check!"
+            if g.board.is_game_over():
+                status = f"Game over: {g.board.result()}"
+            self.bw.update(g.board.fen(), last, status, flip=not g.user_white)
+
+    def do_chess(self, it, text):
+        if self.chess:
+            self.chess.close()
+        c = self.cfg["chess"]
+        white = it.color != "black"
+        self.chess = ChessGame(white, c["skill_level"], c["think_time"])
+        if c.get("window", True):
+            self.bw = self.bw or BoardWindow()
+            self.bw.open()
+        self._show()
+        self.k("chess_white" if white else "chess_black")
+        if not white:
+            self._engine_turn()
+
+    def _log_chess(self, result):
+        g = self.chess
+        if not g or len(g.board.move_stack) < 4:
+            return
+        import chess.pgn
+        pgn = str(chess.pgn.Game.from_board(g.board))
+        self.store.log_chess(g.user_white, self.cfg["chess"]["skill_level"], result, len(g.board.move_stack), pgn)
+
+    def chess_turn(self, text, cloud=True):
+        low, g = text.lower(), self.chess
+        if any(w in low for w in CHESS_STOP):
+            self._log_chess("abandoned")
+            g.close()
+            self.chess = None
+            if self.bw:
+                self.bw.close()
+            self.k("chess_stop")
+            return True
+        if any(w in low for w in CHESS_UNDO):
+            if len(g.board.move_stack) >= 2:
+                g.board.pop(); g.board.pop()
+                self._show()
+                self.k("chess_undo")
+            else:
+                self.k("chess_illegal")
+            return True
+        if any(w in low for w in CHESS_HINT):
+            self.k("chess_hint", move=speak_move(g.board, g.engine_move(), self.lang))
+            return True
+        mv = g.parse(text) or (self._gemini_move(text) if cloud else None)    # Alice can't wait for Gemini
+        if mv is None:
+            self.k("chess_illegal")
+            return True
+        g.board.push(mv)
+        self._show()
+        if not self._finished():
+            self._engine_turn()
+        return True                                     # the move was the whole turn: nothing else may answer it
+        return True
+
+    def _gemini_move(self, text):
+        """Fallback for phrases like 'конь эф три': Gemini picks one of the legal moves."""
+        if not self.cloud():
+            return None
+        g = self.chess
+        legal = g.legal_san()
+        prompt = (f"Chess position (FEN): {g.board.fen()}\nLegal moves (SAN): {', '.join(legal)}\n"
+                  f"The player said (English/Russian/Uzbek, may be misheard): \"{text}\"\n"
+                  "Reply with exactly one legal move from the list, or NONE.")
+        try:
+            ans = self.gemini.text(prompt, max_out=20).strip().strip(".")
+        except Exception:
+            return None
+        return g.move_from_san(ans) if ans in legal else None
+
+    def _engine_turn(self):
+        g = self.chess
+        mv = g.engine_move()
+        desc = speak_move(g.board, mv, self.lang)
+        g.board.push(mv)
+        self._show()
+        self.k("chess_my_move", move=desc)
+        if not self._finished() and g.board.is_check():
+            self.k("chess_check")
+
+    def _finished(self):
+        g = self.chess
+        if not g.board.is_game_over():
+            return False
+        w = g.board.outcome().winner
+        key = "chess_draw" if w is None else ("chess_win_user" if w == g.user_white else "chess_win_me")
+        self.k(key)
+        self._log_chess({"chess_draw": "draw", "chess_win_user": "win"}.get(key, "loss"))
+        g.close()
+        self.chess = None                                  # board window stays open until you close it
+        return True
