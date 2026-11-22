@@ -1,0 +1,13 @@
+# never read secrets, personal config or data
+.env
+.env.*
+config.yaml
+*.db
+logs/
+Linda_data/
+*service-account*.json
+sigma-celerity-*.json
+PROJECT.md
+.venv/
+__pycache__/
+graphify-out/
