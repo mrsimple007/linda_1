@@ -8,7 +8,8 @@ CORE = {"task_add", "task_done", "timer", "plan", "stats", "practice_log", "song
         "delete_birthday", "save_note", "complete_goal", "remove_note", "journal_add", "log_progress",
         "time", "battery", "volume", "music", "mac", "open_app", "chess", "quiz", "remember",
         "calendar_agenda", "calendar_add", "log_driving", "telegram_send", "save_reference", "read_reference", "finance_report", "query_data",
-        "client_add", "client_update", "client_info", "client_list", "client_undo", "bot_stats", "smart_home"}
+        "client_add", "client_update", "client_info", "client_list", "client_undo", "bot_stats", "smart_home",
+        "song_status", "song_suggest"}
 _T = {"string": "string", "integer": "integer", "boolean": "boolean"}
 
 # sent with EVERY message; everything else only when the message is about it (keeps each call far below the
@@ -18,7 +19,8 @@ CLIENT_TOOLS = {"client_add", "client_update", "client_info", "client_list", "cl
 TOOL_RULES = {}                  # tool -> extra instruction, added to the prompt only when that tool is sent
 EXTRA = [
     (r"birthday|tug'?il|день рожд|\bborn\b|turns \d", {"add_birthday", "delete_birthday"}),
-    (r"practi|played|piano|guitar|song|mashq|qo'?shiq|пианино|гитар|песн|repertoire", {"practice_log", "song_add"}),
+    (r"practi|played|piano|guitar|song|piece|learn|mashq|qo'?shiq|o'?rgan|пианино|гитар|песн|выуч|учу|repertoire",
+     {"practice_log", "song_add", "song_status", "song_suggest"}),
     (r"\bplay|music|spotify|qo'?shiq|музык|включи|pause|next track", {"music"}),
     (r"\bsend\b|telegram|yubor|jo'?nat|отправ|пришли|forward|greeting|tabrik|поздрав", {"telegram_send"}),
     (r"note|save|keep|course|lesson|outline|reference|schedule|scholar|stipend|grant|programme|program|apply|"

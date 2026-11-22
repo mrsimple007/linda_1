@@ -195,6 +195,9 @@ def _command(agent, tg, cmd, rest):
         if cmd == "followups":
             return proactive.send_followups(agent, tg, quiet=False)
         return proactive.send_weekly_review(agent, tg)
+    if cmd == "songs":
+        from linda.skills import songs
+        return songs.send_card(agent, tg)
     if cmd == "news":
         return _news(agent, tg)
     if cmd == "tasks":

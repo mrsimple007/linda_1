@@ -22,13 +22,13 @@ def data_dir():
 
 FILES = {
     "songs.yaml": '''# Your repertoire. Linda imports this at every start (new songs are added, edited ones updated).
-# status: learning | polishing | repertoire | archived      priority: 1 (low) .. 3 (high)
+# status: wishlist (want to learn) | learning | polishing | learned | archived      priority: 1 (low) .. 3 (high)
 # melody (optional): single-note line, e.g. "E5 D#5 E5". Lets Linda check your notes when she listens.
 # target_bpm (optional): lets Linda compare your tempo (assumes one note per beat in the melody).
 songs:
   - {title: "Fur Elise", artist: "Beethoven", instrument: piano, status: learning, priority: 3, target_bpm: 100, melody: "E5 D#5 E5 D#5 E5 B4 D5 C5 A4"}
   - {title: "Blackbird", artist: "The Beatles", instrument: guitar, status: polishing, priority: 2, target_bpm: 94}
-  - {title: "C major scale", instrument: piano, status: repertoire, priority: 1, target_bpm: 80, melody: "C4 D4 E4 F4 G4 A4 B4 C5"}
+  - {title: "C major scale", instrument: piano, status: learned, priority: 1, target_bpm: 80, melody: "C4 D4 E4 F4 G4 A4 B4 C5"}
 ''',
     "quizzes/driving_theory_SAMPLE.txt": '''1. What does a solid red traffic light require a driver to do?
 + Stop before the stop line

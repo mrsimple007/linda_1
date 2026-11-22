@@ -24,10 +24,12 @@ def build_plan(store, cfg, minutes, today=None, scope="practice"):
     cands = []
 
     for s in store.songs():
+        if s.status == "wishlist":                 # not started yet: suggestions, not the practice plan
+            continue
         last = store.last_practiced(s.id)
         days = (today - last).days if last else None
         score = {1: 0.0, 2: 1.0, 3: 2.0}.get(s.priority, 1.0)
-        score += {"learning": 2.0, "polishing": 1.5, "repertoire": 0.5}.get(s.status, 1.0)
+        score += {"learning": 2.0, "polishing": 1.5, "learned": 0.5, "repertoire": 0.5}.get(s.status, 1.0)
         reasons = [f"status: {s.status}"] + ([f"priority {s.priority} of 3"] if s.priority == 3 else [])
         if days is None:
             score += 2; reasons.append("never practiced yet")

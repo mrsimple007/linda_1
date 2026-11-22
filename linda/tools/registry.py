@@ -71,8 +71,13 @@ TABLE = [
       "project": (S, "exact name of the ongoing project it belongs to, if any")}, [], {}),
       ("song_add", "Add a song or piece to the repertoire. FIRST work out the proper title and the composer or artist from your own knowledge, then save with full details. Never save a bare guess.",
      {"name": (S, "proper title, e.g. 'Game of Thrones (Main Theme)'"), "composer": (S, "composer or artist, e.g. 'Ramin Djawadi'"),
-      "instrument": (S, "piano or guitar"), "status": (S, "learning, polishing or repertoire"),
+      "instrument": (S, "piano or guitar"), "status": (S, "wishlist (wants to learn it), learning, polishing or learned"),
       "notes": (S, "one short line (difficulty, key, arrangement) if known")}, ["name"], {}),
+    ("song_status", "Change a song's status when the user says they want to learn it, started it, are polishing it, learned/finished it, or paused/dropped it.",
+     {"name": (S, "song title as said"), "status": (S, "wishlist, learning, polishing, learned or archived"),
+      "instrument": (S, "piano or guitar, if said")}, ["name", "status"], {}),
+    ("song_suggest", "Suggestions about the user's music: what to practice now, what to learn next from their want-to-learn list, or new pieces that fit what they have learned. Returns their songs grouped by status; then YOU give the advice.",
+     {"focus": (S, "practice, next or new_ideas")}, [], {}),
     ("music", "Control Spotify. action=play with query plays that specific song or artist (e.g. query 'The Nights Avicii'); action=play without query resumes; also pause, next, previous. ONLY when the user explicitly asks for music.",
      {"action": (S, "play, pause, next or previous"), "query": (S, "song and artist to play")}, ["action"], {"query": "text"}),
     ("journal_add", "Personal diary only: feelings, thoughts, reflections. NOT for work done or things improved (use task_done or log_progress).",
@@ -164,7 +169,7 @@ TABLE = [
 
 
 # Tools that WRITE data run one after another in the order requested; the rest can run in parallel.
-SEQUENTIAL = {"add_birthday", "delete_birthday", "calendar_add", "calendar_undo", "remember", "song_add", "practice_log",
+SEQUENTIAL = {"add_birthday", "delete_birthday", "calendar_add", "calendar_undo", "remember", "song_add", "song_status", "practice_log",
               "practice_delete", "log_driving", "task_add", "task_done", "journal_add", "timer", "chess", "quiz", "mac",
               "volume", "music", "save_note", "complete_goal", "remove_note", "log_progress"}
 SEQUENTIAL.update({"client_add", "client_update", "client_undo"})

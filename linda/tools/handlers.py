@@ -156,8 +156,8 @@ def _song_add(agent, a, text):
         return agent.say({"en": "Which song should I add?", "ru": "Какую песню добавить?",
                           "uz": "Qaysi qo'shiqni qo'shay?"}[agent.lang])
     instr = str(a.get("instrument") or agent.cfg["goals"]["instruments"][0]).lower()
-    status = str(a.get("status") or "learning").lower()
-    status = status if status in ("learning", "polishing", "repertoire") else "learning"
+    from linda.skills.songs import normalize, write_yaml
+    status = normalize(a.get("status")) or "learning"
     comp, notes = str(a.get("composer") or "").strip(), str(a.get("notes") or "").strip()
     st = agent.store
     ex = st.find_song(name, instr)
@@ -169,6 +169,7 @@ def _song_add(agent, a, text):
                            notes=notes or ex.notes or "")
     else:
         st.upsert_song(name, instr, artist=comp, status=status, notes=notes)
+        write_yaml(agent.data_dir / "songs.yaml", name, instr, artist=comp, status=status, notes=notes)
     agent.k("song_saved", title=name + (f" by {comp}" if comp else ""), instrument=instr)
 
 
@@ -211,6 +212,8 @@ SPECIAL = {
     "read_note": _read_note, "birthday_lookup": birthday_lookup,
     "practice_log": _practice_log, "practice_delete": _practice_delete, "log_progress": _log_progress,
     "task_done": _task_done, "song_add": _song_add,
+    "song_status": lambda ag, a, t: __import__("linda.skills.songs", fromlist=["set_status"]).set_status(ag, a, t),
+    "song_suggest": lambda ag, a, t: __import__("linda.skills.songs", fromlist=["suggest"]).suggest(ag, a, t),
     "finance_report": _finance_report,
     "bot_stats": lambda ag, a, t: _bot_stats().bot_stats(ag, a, t),
     "smart_home": lambda ag, a, t: __import__("linda.skills.smart_home", fromlist=["tool"]).tool(ag, a, t),

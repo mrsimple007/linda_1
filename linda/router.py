@@ -65,7 +65,7 @@ Intents:
 - time: ONLY the current local time or date.
 - battery: battery level.
 - remember: text = the fact to remember.
-- song_add: add a NAMED song/piece to learn. name = title (never just "piano"), action = piano or guitar, topic = learning, polishing or repertoire if said.
+- song_add: add a NAMED song/piece to learn. name = title (never just "piano"), action = piano or guitar, topic = wishlist, learning, polishing or learned if said.
 - practice_log: the user practiced. name = song (if said), action = piano or guitar, minutes, score = self-rating 1-5 if said, text = what they worked on.
 - plan: ONLY when asked what to practice or how to use a stated amount of time. minutes = time available ONLY if the user said it, topic = practice if they ask only about practice.
 - analyze_playing: listen to / check / record the user playing an instrument. name = song if said, action = piano or guitar.
