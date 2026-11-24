@@ -6,7 +6,8 @@ from linda.business.finance import FinanceError, fmt_amount
 DOMAINS = {
   "finance": {"hint": "amounts are whole UZS; type income/expense; sheet my_finance=personal, company=business",
     "views": {"q_finance": "CREATE VIEW q_finance AS SELECT tx_date, sheet, type, amount, description "
-                           "FROM finance WHERE status='active'"}},
+                           "FROM finance WHERE status='active' AND (source IN ('sheet','import') OR created_at > COALESCE("
+                           "(SELECT value FROM finance_state WHERE key = 'synced_at:' || finance.sheet), ''))"}},
   "tasks": {"hint": "status is 'open' or 'done'; done_date is when it was finished",
     "views": {"q_tasks": "CREATE VIEW q_tasks AS SELECT id, title, status, due, project, "
                          "date(done_ts,'unixepoch','localtime') AS done_date FROM tasks"}},

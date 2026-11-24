@@ -82,6 +82,13 @@ GROUP BY month, sheet;
 """
 
 
+# Rows that make up the books: the mirror of the Google Sheets (source 'sheet', or 'import' from the one-off import)
+# plus Linda's own entries written after that sheet was last mirrored (older ones are already inside the mirror).
+LEDGER = ("status='active' AND (source IN ('sheet','import') OR created_at > COALESCE("
+          "(SELECT value FROM finance_state WHERE key = 'synced_at:' || finance.sheet), ''))")
+MIRROR = ("sheet", "import")
+
+
 class FinanceError(Exception):
     """Anything the user should be told about (shown as-is in Telegram)."""
 
@@ -637,7 +644,51 @@ class FinanceService:
         if not cfg:
             raise FinanceError("config.yaml has no 'finance:' section.")
         cfg.setdefault("credentials_file", os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", ""))
-        return cls(cfg, **kw)
+        full = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        if "db_path" not in kw and not cfg.get("db_path") and full.get("db_path"):
+            kw["db_path"] = str(Path(full["db_path"]).expanduser())   # the same linda.db as the rest of Linda
+        svc = cls(cfg, **kw)
+        svc.merge_stray(ROOT / "linda.db")
+        return svc
+
+    def merge_stray(self, old) -> int:
+        """Finance entries that went to <repo>/linda.db (used by mistake while finance had no db_path) are copied
+        into this database once, skipping duplicates; the real DB is backed up first and the old file renamed."""
+        old = Path(old)
+        if not old.exists() or old.resolve() == Path(self.db_path).resolve():
+            return 0
+        src = sqlite3.connect(f"file:{old}?mode=ro", uri=True)
+        src.row_factory = sqlite3.Row
+        try:
+            rows = [dict(r) for r in src.execute("SELECT * FROM finance WHERE source NOT IN ('sheet','import')")]
+        except sqlite3.Error:
+            rows = []
+        finally:
+            src.close()
+        added = 0
+        if rows:
+            import shutil
+            stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+            shutil.copy2(self.db_path, f"{self.db_path}.bak-{stamp}")
+            con = sqlite3.connect(self.db_path, timeout=10)
+            try:
+                with con:
+                    have = {r[1] for r in con.execute("PRAGMA table_info(finance)")}
+                    for r in rows:
+                        dup = con.execute("SELECT 1 FROM finance WHERE created_at=? AND tx_date=? AND sheet=? AND amount=? "
+                                          "AND description=?", (r["created_at"], r["tx_date"], r["sheet"], r["amount"],
+                                                                r["description"])).fetchone()
+                        if dup:
+                            continue
+                        cols = [c for c in r if c != "id" and c in have]
+                        con.execute(f"INSERT INTO finance({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                                    [r[c] for c in cols])
+                        added += 1
+            finally:
+                con.close()
+        old.rename(old.with_name(f"{old.name}.merged-{dt.date.today():%Y%m%d}"))
+        print(f"[finance] merged {added} entries from {old} into {self.db_path}; old file renamed")
+        return added
 
     # -- db helpers
     def _run(self, sql, params=(), fetch=False):
@@ -655,7 +706,7 @@ class FinanceService:
         r = self._run(
             "SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount END),0) AS inc, "
             "COALESCE(SUM(CASE WHEN type='expense' THEN amount END),0) AS exp, "
-            "COUNT(*) AS n, MIN(tx_date) AS since FROM finance WHERE status='active' AND sheet=?",
+            "COUNT(*) AS n, MIN(tx_date) AS since FROM finance WHERE " + LEDGER + " AND sheet=?",
             (sheet,), fetch=True)[0]
         return dict(r)
 
@@ -733,7 +784,7 @@ class FinanceService:
 
     def undo_last(self, sheet: Optional[str] = None) -> Tx:
         with self._lock:
-            q = "SELECT * FROM finance WHERE status='active' AND source <> 'import'" + \
+            q = "SELECT * FROM finance WHERE status='active' AND source NOT IN ('sheet', 'import')" + \
                 (" AND sheet=?" if sheet else "") + " ORDER BY id DESC LIMIT 1"
             rows = self._run(q, (sheet,) if sheet else (), fetch=True)
             if not rows:
@@ -752,10 +803,37 @@ class FinanceService:
 
     # -- analysis from the Google Sheets themselves (every entry, typed by hand or by Linda)
     def sheet_entries(self, sheet: str) -> list:
+        """Read the sheet and refresh its mirror in linda.db, so SQL questions see every row too."""
         try:
-            return self._adapter(sheet).read_all()
+            rows = self._adapter(sheet).read_all()
         except Exception as e:
             raise self._wrap(e) from e
+        self._mirror(sheet, rows)
+        return rows
+
+    def _mirror(self, sheet: str, rows: list) -> None:
+        data = [(r["date"].isoformat(), sheet, r["type"], int(round(r["amount"])), r["desc"] or "—", r.get("row"))
+                for r in rows if r["amount"] and r["amount"] > 0]
+        con = sqlite3.connect(self.db_path, timeout=10)
+        try:
+            with con:
+                con.execute("DELETE FROM finance WHERE sheet=? AND source IN ('sheet','import')", (sheet,))
+                con.executemany("INSERT INTO finance(tx_date, sheet, type, amount, description, sheet_row, source, "
+                                "status, confirmed) VALUES (?,?,?,?,?,?, 'sheet', 'active', 1)", data)
+                con.execute("INSERT INTO finance_state(key, value) VALUES (?, datetime('now')) ON CONFLICT(key) "
+                            "DO UPDATE SET value=excluded.value", (f"synced_at:{sheet}",))
+        finally:
+            con.close()
+
+    def sync(self) -> dict:
+        """Mirror every sheet now. -> {sheet: rows or error text}; a sheet that fails keeps its old mirror."""
+        out = {}
+        for sh in (self.cfg.get("sheets") or {}):
+            try:
+                out[sh] = len(self.sheet_entries(sh))
+            except FinanceError as e:
+                out[sh] = str(e)
+        return out
 
     def sheet_summary(self, month: Optional[str] = None, sheets=None, top: int = 5) -> dict:
         """Totals read from the sheets. month: 'YYYY-MM', None = this month, 'all' = everything in the sheet.
@@ -768,10 +846,10 @@ class FinanceService:
                 rows = self.sheet_entries(sh)
                 src = "sheet"
             except FinanceError as e:
-                print(f"[finance] {sh}: sheet not readable, using linda.db: {e}")
+                print(f"[finance] {sh}: sheet not readable, using the last copy in linda.db: {e}")
                 rows = [{"type": r["type"], "date": dt.date.fromisoformat(r["tx_date"]), "amount": r["amount"],
                          "desc": r["description"]} for r in self._run(
-                    "SELECT type, tx_date, amount, description FROM finance WHERE status='active' AND sheet=?",
+                    "SELECT type, tx_date, amount, description FROM finance WHERE " + LEDGER + " AND sheet=?",
                     (sh,), fetch=True)]
                 src = "linda"
             if not allt:
@@ -816,19 +894,19 @@ class FinanceService:
 
     def recent(self, sheet: str, tx_type: str = "expense", n: int = 5) -> list:
         return [dict(r) for r in self._run(
-            "SELECT tx_date, amount, description FROM finance WHERE status='active' AND sheet=? AND type=? "
+            "SELECT tx_date, amount, description FROM finance WHERE " + LEDGER + " AND sheet=? AND type=? "
             "ORDER BY tx_date DESC, id DESC LIMIT ?", (sheet, tx_type, n), fetch=True)]
 
     def summary(self, month: Optional[str] = None, top: int = 5) -> dict:
         month, a, b = self._month_range(month)
         out: dict = {"month": month, "sheets": {}}
-        for r in self._run("SELECT sheet, type, SUM(amount) AS total FROM finance WHERE status='active' "
+        for r in self._run("SELECT sheet, type, SUM(amount) AS total FROM finance WHERE " + LEDGER + " "
                            "AND tx_date>=? AND tx_date<? GROUP BY sheet, type", (a, b), fetch=True):
             out["sheets"].setdefault(r["sheet"], {"income": 0, "expense": 0, "top": []})[r["type"]] = r["total"]
         for sh, d in out["sheets"].items():
             d["balance"] = d["income"] - d["expense"]
             d["top"] = [(r["d"], r["total"]) for r in self._run(
-                "SELECT MIN(description) AS d, SUM(amount) AS total FROM finance WHERE status='active' "
+                "SELECT MIN(description) AS d, SUM(amount) AS total FROM finance WHERE " + LEDGER + " "
                 "AND type='expense' AND sheet=? AND tx_date>=? AND tx_date<? GROUP BY lower(description) "
                 "ORDER BY total DESC LIMIT ?", (sh, a, b, top), fetch=True)]
         return out
@@ -850,7 +928,7 @@ class FinanceService:
     def search_total(self, keyword: str, month: Optional[str] = None, sheet: Optional[str] = None,
                      type: str = "expense") -> tuple[int, int]:
         """'How much did I spend on ads in September?' -> (total, count)."""
-        sql = "SELECT COALESCE(SUM(amount),0) AS t, COUNT(*) AS n FROM finance WHERE status='active' " \
+        sql = "SELECT COALESCE(SUM(amount),0) AS t, COUNT(*) AS n FROM finance WHERE " + LEDGER + " " \
               "AND type=? AND lower(description) LIKE ? ESCAPE '\\'"
         like = "%" + keyword.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
         params: list = [type, like]

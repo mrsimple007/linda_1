@@ -1,5 +1,5 @@
 """Finance tests with a fake Google Sheets API (no network, no credentials).  python tests/test_finance.py"""
-import datetime as dt, os, re, sys, tempfile
+import datetime as dt, os, pathlib, re, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from linda.business.finance import BlockSheet, FinanceError, FinanceService, FlatSheet, ParseError, parse_message, to_serial
 from linda.business.finance_chat import FinanceChat
@@ -268,5 +268,32 @@ svc8._run("INSERT INTO finance(tx_date,sheet,type,amount,description,source,stat
           "VALUES ('2026-11-01','my_finance','expense',1000,'Tea','telegram','active')")
 b = svc8.sheet_summary("all", ["my_finance"])["sheets"]["my_finance"]
 assert (b["expense"], b["source"]) == (1000, "linda"), b               # sheet down: falls back to linda.db
+
+# ================= the sheets are mirrored into linda.db; Linda's own entries are never counted twice =================
+import sqlite3, time as _t
+db9 = tempfile.mktemp(suffix=".db")
+svc9 = FinanceService(cfg, db_path=db9, adapters={"my_finance": FlatSheet(s_flat, flat_cfg), "company": BlockSheet(s_co, co_cfg)})
+svc9._run("INSERT INTO finance(tx_date,sheet,type,amount,description,source,status,created_at) "
+          "VALUES ('2026-11-05','my_finance','expense',1000000,'Rent','telegram','active','2000-01-01 00:00:00')")
+assert svc9.sync() == {"my_finance": 4, "company": 4}
+q = lambda: svc9._run("SELECT COALESCE(SUM(amount),0) AS t FROM finance WHERE " + __import__("linda.business.finance", fromlist=["LEDGER"]).LEDGER
+                      + " AND sheet='my_finance' AND type='expense'", fetch=True)[0]["t"]
+assert q() == 1_800_000, q()                                      # old Telegram 'Rent' is inside the mirror: once
+svc9._run("INSERT INTO finance(tx_date,sheet,type,amount,description,source,status,created_at) "
+          "VALUES ('2026-11-06','my_finance','expense',50000,'Taxi','telegram','active','2999-01-01 00:00:00')")
+assert q() == 1_850_000                                           # newer than the last sync: counted until mirrored
+s_flat.cells[("D", 3)] = "Obed (edited by hand)"; svc9.sync()
+assert svc9._run("SELECT COUNT(*) AS n FROM finance WHERE description='Obed (edited by hand)'", fetch=True)[0]["n"] == 1
+assert svc9.recent("my_finance", "expense", 1)[0]["description"] in ("Rent", "Taxi")
+try: svc9.undo_last("company"); raise SystemExit("mirror rows must never be undone")
+except FinanceError as e: assert "Nothing to undo" in str(e)
+
+# a stray linda.db is merged once (no duplicates), backed up, then renamed
+stray = pathlib.Path(tempfile.mkdtemp()) / "linda.db"
+FinanceService(cfg, db_path=str(stray), adapters={})._run(
+    "INSERT INTO finance(tx_date,sheet,type,amount,description,source,status) VALUES ('2026-11-24','company','income',7,'X','telegram','active')")
+assert svc9.merge_stray(stray) == 1 and not stray.exists() and list(stray.parent.glob("linda.db.merged-*"))
+assert list(pathlib.Path(db9).parent.glob(pathlib.Path(db9).name + ".bak-*"))
+assert svc9.merge_stray(stray) == 0                               # already merged: nothing to do
 
 print("all finance tests passed")

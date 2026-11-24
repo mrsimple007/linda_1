@@ -49,3 +49,5 @@ README.md
 
 # graphify output (local)
 graphify-out/
+*.db.merged-*
+*.db.bak-*

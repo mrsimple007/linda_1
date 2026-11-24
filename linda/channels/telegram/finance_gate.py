@@ -193,6 +193,7 @@ def _fin_answer(agent, tg, query):
                 _summary_card(tg, svc, sh, s, p["month"])
         else:
             da = getattr(agent, "data_ask", None)
+            print(f"[finance] mirrored sheets before the SQL question: {svc.sync()}")
             if da is None:
                 return tg.send_styled("Finance", icon="💰", intro="I can show reports, balances and latest entries.")
             for sh in p["sheets"]:
