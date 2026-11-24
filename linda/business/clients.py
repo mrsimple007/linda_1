@@ -375,8 +375,10 @@ class ClientsService:
         return None, f"No client matches '{query}'."
 
     def named_in(self, text):
-        """Clients whose name (a word of 4+ letters) starts a word of the text: 'Jasurning telefoni' -> Jasur."""
+        """Clients whose name (a word of 4+ letters) starts a word of the text: 'Jasurning telefoni' -> Jasur.
+        A capitalised word of 4+ letters may also be the start of the name: 'Umid' -> Umidjon."""
         words = _norm(text).split()
+        caps = [w for w in (_norm(tok) for tok in re.findall(r"[\w'ʻ’-]+", text) if tok[:1].isupper()) if len(w) >= 4]
         con = self._con()
         try:
             rows = [dict(r) for r in con.execute("select id, name from clients")]
@@ -385,7 +387,7 @@ class ClientsService:
         hits = []
         for r in rows:
             parts = [p for p in _norm(r["name"]).split() if len(p) >= 4]
-            if any(w.startswith(p) for p in parts for w in words):
+            if any(w.startswith(p) for p in parts for w in words) or any(p.startswith(w) for p in parts for w in caps):
                 hits.append(r)
         return hits
 
@@ -526,6 +528,37 @@ class ClientsService:
         finally:
             con.close()
         return self.set_steps_sheet(cid, {n: done for n in steps})
+
+    def finish(self, cid, visa=""):
+        """The whole process is done ('progress 11/11', 'got the visa'): every step ticked and, with visa, the visa
+        answer saved. ONE log entry, so one 'undo client' puts all of it back."""
+        today = str(datetime.date.today())
+        con = self._con()
+        try:
+            old = dict(con.execute("select * from clients where id=?", (cid,)).fetchone())
+            accs = [dict(r) for r in con.execute("select * from client_accounts where client_id=?", (cid,))]
+            have = {r["step_no"]: dict(r) for r in con.execute("select * from client_steps where client_id=?", (cid,))}
+            # steps without a row yet are saved as 'not done', so undo un-ticks them too
+            prev = [have.get(n) or {"step_no": n, "step_name": name, "done": 0, "done_date": ""}
+                    for n, name in self.steps.items()]
+            new = [n for n in self.steps if not (have.get(n) or {}).get("done")]
+            for n in new:
+                con.execute("insert or replace into client_steps values (?,?,?,?,?)", (cid, n, self.steps[n], 1, today))
+            fields = []
+            if visa and visa != (old.get("visa_answer") or ""):
+                con.execute("update clients set visa_answer=? where id=?", (visa, cid))
+                fields.append("visa_answer")
+            if new or fields:
+                con.execute("update clients set updated_ts=? where id=?", (time.time(), cid))
+                self._log(con, "update", cid, {"client": old, "accounts": accs, "steps": prev})
+            con.commit()
+        finally:
+            con.close()
+        res = self._sheet(lambda: self._sheet_write_fields(cid, fields)) if fields else None
+        if new:
+            r2 = self.set_steps_sheet(cid, {n: True for n in new})
+            res = r2 if res is None else res
+        return new, fields, res
 
     def set_steps_sheet(self, cid, states):
         """states: {step_no: done}. Writes only those checkbox cells."""
@@ -771,7 +804,17 @@ def client_update(agent, a, text):
         return agent.say(f"error: {err}")
     notes = []
     try:
-        steps = [int(x) for x in re.findall(r"\d+", str(a.get("steps") or ""))]
+        raw = str(a.get("steps") or "")
+        frac = re.search(r"(\d+)\s*/\s*(\d+)", raw)
+        if ALL_STEPS.search(raw) or (frac and frac.group(1) == frac.group(2)):
+            if not _bool(a.get("done"), True):
+                return agent.say("error: say which steps are not done (numbers).")
+            _, _, res = svc.finish(c["id"])
+            notes.append(f" (all steps done{_note(res)})")
+            raw = ""
+        elif frac:
+            return agent.say(f"error: '{frac.group(0)}' is a count, not step numbers. Say which steps are done.")
+        steps = [int(x) for x in re.findall(r"\d+", raw)]
         if steps:
             notes.append(_note(svc.set_steps(c["id"], steps, _bool(a.get("done"), True))))
         if a.get("field"):
@@ -882,6 +925,36 @@ STEP_WORDS = [(1, r"konsult|consult|konsalt|консульт"), (3, r"proton"),
               (10, r"tarjima|translat|перевод"), (11, r"videx"), (12, r"viza kutil|visa (wait|pending)|viza topshir")]
 
 
+ALL_STEPS = re.compile(r"\b(all|every|hammasi|barchasi|все)\b", re.I)
+VISA_GOT = re.compile(r"\bgot (?:the |his |her |a )?visa\b|\bvisa (?:is )?(?:received|approved|granted|ready)\b|"
+                      r"\bviza(?:ni|si)? (?:oldi\w*|chiqdi|berildi|tasdiqlandi|tayyor)\b|получил\w* виз|виза (?:готова|одобрен)",
+                      re.I)
+ALL_DONE = re.compile(r"\b(\d+)\s*/\s*\1\b|\b(?:all|every) steps?\b|\b(?:whole|entire|the) process\b|"
+                      r"\bsuccessfully (?:finished|completed|done)\b|\bbarcha (?:qadam|bosqich)|hammasi (?:tayyor|bajarildi)|"
+                      r"весь процесс|все этапы|успешно (?:заверш|закончи)", re.I)
+VISA_OK = "Visa received"
+
+
+def _finish_client(agent, tg, t):
+    """'Got the visa', 'progress 11/11', 'the whole process completed' -> every step done (+ visa), no AI needed."""
+    visa = bool(VISA_GOT.search(t))
+    count = re.search(r"\b(\d+)\s*/\s*\1\b", t)               # "11/11"
+    if not (visa or count or (ALL_DONE.search(t) and DONE.search(t))) or UNDONE.search(t) or QUESTION.search(t):
+        return False
+    svc = service(agent)
+    hits = svc.named_in(t)
+    if len(hits) != 1:
+        return False                      # no client or several: the AI asks
+    new, fields, res = svc.finish(hits[0]["id"], f"{VISA_OK} ({datetime.date.today():%d.%m.%Y})" if visa else "")
+    c = svc.card(hits[0]["id"])
+    print(f"[route] client finished -> steps {new}, fields {fields}")
+    what = "all steps done" + (" and the visa saved" if fields else "")
+    intro = (f"🎉 {c['name']}: {what}{_note(res)}. Wrong? Say 'undo client'." if new or fields
+             else f"{c['name']} already has every step done.")
+    _send_card(agent, c, "🎉", intro=intro)
+    return True
+
+
 def _steps_in(text):
     return sorted({n for n, rx in STEP_WORDS if re.search(rx, text, re.I)})
 
@@ -953,7 +1026,7 @@ def telegram_text(agent, tg, text):
     if len(t) < 300:
         agent.in_telegram = True
         try:
-            return _mark_steps(agent, tg, t) or _answer_question(agent, tg, t)
+            return _finish_client(agent, tg, t) or _mark_steps(agent, tg, t) or _answer_question(agent, tg, t)
         finally:
             agent.in_telegram = False
     return False

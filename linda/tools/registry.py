@@ -150,9 +150,11 @@ TABLE = [
  "7 Expatrio hisob ochish, 8 Expatrio hujjatlar, 9 CV / Motivatsion xat, 10 Xujjat tarjimalari, 11 Videx forma, "
  "12 Viza kutilmoqda.",
  {"name": (S, "the client's name as the user wrote it"),
-  "steps": (S, "step numbers to change, comma separated, e.g. '4' or '4,5'"),
+  "steps": (S, "step numbers to change, comma separated, e.g. '4' or '4,5'; 'all' when the whole process is "
+           "finished ('progress 11/11', 'got the visa', 'successfully completed'). '11/11' is a count, never step 11"),
   "done": (B, "true = done (default), false = not done"),
-  "field": (S, "phone, email, dob, address, certificate, course, city, visa_applied, visa_answer, payment, comment or account"),
+  "field": (S, "phone, email, dob, address, certificate, course, city, visa_applied, visa_answer, payment, comment or account. "
+           "A visa that was received or approved goes in visa_answer, not visa_applied"),
   "value": (S, "the new value; for account: 'Service: login / password'")}, ["name"], {}),
 ("client_info", "Show one agency client's details, accounts and progress. Use for any question about a specific client.",
  {"name": (S, "the client's name")}, ["name"], {}),
