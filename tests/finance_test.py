@@ -236,6 +236,37 @@ svc6._run("INSERT INTO finance(tx_date,sheet,type,amount,description,sheet_row,s
           "VALUES ('2026-09-10','my_finance','income',9000000,'Salary',2,'import','active')")
 try: svc6.undo_last(); raise SystemExit("must not undo imports")
 except FinanceError as e: assert "Nothing to undo" in str(e)
-assert "9 000 000" in svc6.format_summary("2026-09")
+assert "no entries in the sheets" in svc6.format_summary("2026-09")   # totals come from the (empty) sheet now
+
+# ================= summaries read the SHEETS (hand-typed rows count too), not only linda.db =================
+s_flat, s_co = FakeAPI(), FakeAPI()
+for col, v in zip("ABCD", ["Date", "Type", "Sum", "For what?"]): s_flat.cells[(col, 1)] = v
+for i, (d_, t_, a_, w_) in enumerate([(dt.date(2026, 10, 3), "Income", 9_000_000, "Salary"),
+                                      (dt.date(2026, 10, 9), "Expense", 500_000, "Obed"),
+                                      (dt.date(2026, 11, 2), "Expense", 300_000, "obed"),
+                                      (dt.date(2026, 11, 5), "Expense", 1_000_000, "Rent")], start=2):
+    for col, v in zip("ABCD", [to_serial(d_), t_, a_, w_]): s_flat.cells[(col, i)] = v
+s_flat.cells[("A", 7)] = "separator row"                            # junk rows are skipped
+for r, (d_, w_, inc, exp) in {3: ("05.01.2026", "Kurs", 4_000_000, ""), 4: ("08.11.2026", "Fee", "1 500 000", ""),
+                             53: ("10.01.2026", "Reklama", "", 700_000), 54: ("09.11.2026", "Ofis", "", 200_000)}.items():
+    for col, v in zip("BCDE", [d_, w_, inc, exp]): s_co.cells[(col, r)] = v
+s_co.cells[("D", 136)] = "=SUM(D3:D134)"                           # totals row is outside the blocks: never read
+svc7 = FinanceService(cfg, db_path=tempfile.mktemp(suffix=".db"),
+                      adapters={"my_finance": FlatSheet(s_flat, flat_cfg), "company": BlockSheet(s_co, co_cfg)})
+a = svc7.sheet_summary("all")["sheets"]
+assert (a["my_finance"]["income"], a["my_finance"]["expense"], a["my_finance"]["n"]) == (9_000_000, 1_800_000, 4), a
+assert a["my_finance"]["top"][0] == ("Rent", 1_000_000) and ("Obed", 800_000) in a["my_finance"]["top"], a
+assert (a["company"]["income"], a["company"]["expense"], a["company"]["source"]) == (5_500_000, 900_000, "sheet"), a
+nov = svc7.sheet_summary("2026-11")["sheets"]
+assert nov["my_finance"]["expense"] == 1_300_000 and nov["my_finance"]["income"] == 0 and nov["company"]["income"] == 1_500_000
+assert svc7.sheet_summary("2026-12")["sheets"] == {}
+assert [r["description"] for r in svc7.sheet_recent("my_finance", "expense", 2)] == ["Rent", "obed"]
+class Broken(FakeAPI):
+    def get(self, *a, **k): raise RuntimeError("403")
+svc8 = FinanceService(cfg, db_path=tempfile.mktemp(suffix=".db"), adapters={"my_finance": FlatSheet(Broken(), flat_cfg)})
+svc8._run("INSERT INTO finance(tx_date,sheet,type,amount,description,source,status) "
+          "VALUES ('2026-11-01','my_finance','expense',1000,'Tea','telegram','active')")
+b = svc8.sheet_summary("all", ["my_finance"])["sheets"]["my_finance"]
+assert (b["expense"], b["source"]) == (1000, "linda"), b               # sheet down: falls back to linda.db
 
 print("all finance tests passed")

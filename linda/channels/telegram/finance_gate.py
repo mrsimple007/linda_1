@@ -13,6 +13,8 @@ FIN_WORD = re.compile(
     r"transactions?|payments?|balance|summary)\b|доход|расход|выручк|прибыл|покупк|трат|"
     r"daromad|xarajat|xarid", re.I)
 FIN_CMDS = ("/summary", "summary", "/balance", "balance", "/finance")
+OVERALL = re.compile(r"overall|all[- ]?time|in total|\btotal\b|so far|whole|entire|umumiy|jami|hammasi|"
+                     r"всего|итого|за вс[её] время|в целом", re.I)
 LAST_MONTH = re.compile(r"last month|previous month|прошл\w+ месяц|o'?tgan oy", re.I)
 RECENT = re.compile(r"\b(latest|last|recent|newest)\b|последн|oxirgi", re.I)
 REPORT_Q = re.compile(r"revenue|income|expenses?|expences?|summary|balance|report|profit|finances?|"
@@ -27,6 +29,8 @@ FIN_SESSION, FIN_LOCK = 300, 900
 
 
 def _fin_month(t):
+    if OVERALL.search(t) and not _named_month(t):
+        return "all"
     m = re.search(r"\b(\d{4}-\d{2})\b", t)
     if m:
         return m.group(1)
@@ -40,7 +44,15 @@ def _fin_month(t):
     return None                                     # None = this month
 
 
+def _named_month(t):
+    low = t.lower()
+    return bool(re.search(r"\b\d{4}-\d{2}\b", t) or LAST_MONTH.search(t) or re.search(r"this month|этот месяц|bu oy", low)
+                or any(re.search(rf"\b{n.lower()}\b", low) for n in MONTHS_EN))
+
+
 def _month_label(m):
+    if m == "all":
+        return "all time"
     y, mo = map(int, (m or datetime.date.today().strftime("%Y-%m")).split("-"))
     return f"{MONTHS_EN[mo - 1]} {y}"
 
@@ -65,7 +77,7 @@ def _summary_card(tg, svc, sheet, s, month):
     title = f"{name} finance · {_month_label(month)}"
     d = s["sheets"].get(sheet)
     if not d:
-        return tg.send_styled(title, icon=icon, intro="No entries for this month yet.")
+        return tg.send_styled(title, icon=icon, intro="No entries in the sheet for this period.")
     inc, exp, bal = d["income"], d["expense"], d["balance"]
     sections = [("", [f"🟢 Income: <b>{_money(inc)}</b>", f"🔴 Expenses: <b>{_money(exp)}</b>",
                       f"{'💰' if bal >= 0 else '⚠️'} Balance: <b>{_money(bal, sign=True)}</b>"])]
@@ -75,12 +87,16 @@ def _summary_card(tg, svc, sheet, s, month):
             share = t / exp if exp else 0
             lines.append(f"{i}. {esc(n)}\n    <b>{_money(t)}</b> · {_bar(share)} {share:.0%}")
         sections.append(("Biggest expenses", lines))
-    return tg.send_styled(title, sections, footer="UZS · only entries made through Linda", icon=icon)
+    if d.get("source") == "sheet":
+        foot = f"UZS · Google Sheet · {d['n']} entries, {d['since']:%d.%m.%Y}–{d['until']:%d.%m.%Y}"
+    else:
+        foot = "UZS · the sheet could not be read: only entries made through Linda"
+    return tg.send_styled(title, sections, footer=foot, icon=icon)
 
 
 def _recent_card(tg, svc, sheet, tx_type, n=5):
     icon, name = SHEETS[sheet]
-    rows = svc.recent(sheet, tx_type, n)
+    rows = svc.sheet_recent(sheet, tx_type, n)
     kind = "income" if tx_type == "income" else "expenses"
     title = f"{name} · latest {len(rows) if rows else n} {kind}"
     if not rows:
@@ -102,11 +118,13 @@ Return ONLY JSON with these keys: finance, sheet, view, type, month, limit. Fill
   "summary" = totals of a month; "balance" = how much is left overall; "custom" = any other money question
   (biggest purchase, spending on one thing, a date range, a comparison).
 - type: "income" or "expense" (purchases, spending, payments = expense).
-- month: "YYYY-MM" only for view=summary when a month is named; otherwise null.
+- month: "YYYY-MM" only for view=summary when a month is named; "all" when the user asks overall / in total /
+  all time / so far and names no month; otherwise null (= this month).
 - limit: how many entries for view=recent (the number the user asked for, default 5, at most 50).
 Examples:
 "latest 10 purchases" -> {{"finance": true, "sheet": "both", "view": "recent", "type": "expense", "month": null, "limit": 10}}
 "company revenue in October" -> {{"finance": true, "sheet": "company", "view": "summary", "type": "income", "month": "YYYY-10", "limit": 5}}
+"company revenue and expenses overall" -> {{"finance": true, "sheet": "company", "view": "summary", "type": "income", "month": "all", "limit": 5}}
 "how much did I spend on taxi this month" -> {{"finance": true, "sheet": "both", "view": "custom", "type": "expense", "month": null, "limit": 5}}"""
 
 COUNT = re.compile(r"\b(\d{1,2})\b")
@@ -133,8 +151,12 @@ def _fin_plan(agent, text):
         sheet = obj.get("sheet")
         view = obj.get("view")
         month = obj.get("month")
-        if not (isinstance(month, str) and re.fullmatch(r"\d{4}-\d{2}", month)):
+        if not (isinstance(month, str) and re.fullmatch(r"\d{4}-\d{2}|all", month)):
             month = None
+        if OVERALL.search(text) and not _named_month(text):
+            month = "all"                     # "overall" with no month named, whatever the model said
+        elif month == "all" and _named_month(text):
+            month = _fin_month(text)
         view = view if view in ("summary", "recent", "balance", "custom") else "summary"
         if (view == "summary" and RECENT.search(LAST_MONTH.sub("", text)) and not LEFT_Q.search(text)
                 and not TOTAL_Q.search(text)):
@@ -166,7 +188,7 @@ def _fin_answer(agent, tg, query):
             for sh in p["sheets"]:
                 _recent_card(tg, svc, sh, p["type"], p.get("limit", 5))
         elif p["view"] == "summary":
-            s = svc.summary(p["month"])
+            s = svc.sheet_summary(p["month"], p["sheets"])
             for sh in p["sheets"]:
                 _summary_card(tg, svc, sh, s, p["month"])
         else:
@@ -205,8 +227,9 @@ FOLLOW_UP = 120          # seconds a short follow-up still belongs to the last f
 def fin_refine(agent, tg, t):
     """'November', 'company only', 'for my finance' sent right after a finance question refine THAT question
     (it used to drop the question and reach the brain alone, which answered with tasks)."""
-    if len(t) > 40 or "\n" in t or t.startswith("/") or _pin_like(t, _fin_pin(agent)):
-        return False
+    if (len(t) > 40 or len(t.split()) > 4 or "\n" in t or t.startswith("/") or FIN_WORD.search(t)
+            or _pin_like(t, _fin_pin(agent))):
+        return False                      # "my finance revenue and expenses" is a new question, not a follow-up
     from linda.business import bot_stats
     if not (bot_stats.REFINE.search(t) or MY_WORDS.search(t) or CO_WORDS.search(t)):
         return False

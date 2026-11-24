@@ -411,6 +411,10 @@ class FlatSheet:
                 out.append({"row": i, "type": typ, "date": d, "amount": _num(row[2]), "desc": desc})
         return out
 
+    def read_all(self) -> list:
+        """Every entry in the sheet (typed by hand or by Linda): [{row, type, date, amount, desc}]."""
+        return [e for e in self._entries(self.api.get(self.id, a1(self.tab, "A:D"))) if e["amount"]]
+
     def peek(self, tx_type: str) -> Slot:
         last = self._last_row(self.api.get(self.id, a1(self.tab, "A:D")))
         return Slot(row=last + 1, copy_from=last if last > self.header_rows else None)
@@ -564,6 +568,21 @@ class BlockSheet:
 
     def locate(self, tx: Tx, chooser=None, merge=None) -> Slot:
         return self.peek(tx.type)
+
+    def read_all(self) -> list:
+        """Every entry of both blocks: [{row, type, date, amount, desc}]. Rows without a date or amount are skipped
+        (the block totals live outside the blocks and are never read)."""
+        out = []
+        for kind, (first, last) in self.rows.items():
+            col = 2 if kind == "income" else 3                 # B=Sana C=Tavsif D=Kirim E=Chiqim
+            block = self.api.get(self.id, a1(self.tab, f"B{first}:E{last}"))
+            for i, r in enumerate(block):
+                r = list(r) + [""] * 4
+                amt = _num(str(r[col]).replace(" ", "").replace("\u00a0", "").replace(",", ""))
+                d = _row_date(r[0])
+                if amt and d:
+                    out.append({"row": first + i, "type": kind, "date": d, "amount": amt, "desc": str(r[1]).strip()})
+        return out
 
     def write(self, tx: Tx, slot: Slot) -> None:
         r, col = slot.row, self.AMOUNT_COL[tx.type]
@@ -731,6 +750,58 @@ class FinanceService:
             self.audit("finance.undo", {"id": tx.db_id, "sheet": tx.sheet, "row": tx.row}, "ok", True)
             return tx
 
+    # -- analysis from the Google Sheets themselves (every entry, typed by hand or by Linda)
+    def sheet_entries(self, sheet: str) -> list:
+        try:
+            return self._adapter(sheet).read_all()
+        except Exception as e:
+            raise self._wrap(e) from e
+
+    def sheet_summary(self, month: Optional[str] = None, sheets=None, top: int = 5) -> dict:
+        """Totals read from the sheets. month: 'YYYY-MM', None = this month, 'all' = everything in the sheet.
+        A sheet that cannot be read falls back to the entries made through Linda (marked source='linda')."""
+        allt = month == "all"
+        month = None if allt else self._month_range(month)[0]
+        out: dict = {"month": "all" if allt else month, "sheets": {}}
+        for sh in sheets or list((self.cfg.get("sheets") or {})):
+            try:
+                rows = self.sheet_entries(sh)
+                src = "sheet"
+            except FinanceError as e:
+                print(f"[finance] {sh}: sheet not readable, using linda.db: {e}")
+                rows = [{"type": r["type"], "date": dt.date.fromisoformat(r["tx_date"]), "amount": r["amount"],
+                         "desc": r["description"]} for r in self._run(
+                    "SELECT type, tx_date, amount, description FROM finance WHERE status='active' AND sheet=?",
+                    (sh,), fetch=True)]
+                src = "linda"
+            if not allt:
+                rows = [r for r in rows if r["date"].strftime("%Y-%m") == month]
+            if not rows:
+                continue
+            inc = sum(r["amount"] for r in rows if r["type"] == "income")
+            exp = sum(r["amount"] for r in rows if r["type"] == "expense")
+            groups: dict = {}
+            for r in rows:
+                if r["type"] == "expense":
+                    g = groups.setdefault(r["desc"].strip().lower(), [r["desc"].strip() or "—", 0])
+                    g[1] += r["amount"]
+            out["sheets"][sh] = {
+                "income": int(inc), "expense": int(exp), "balance": int(inc - exp), "n": len(rows), "source": src,
+                "since": min(r["date"] for r in rows), "until": max(r["date"] for r in rows),
+                "top": [(n, int(t)) for n, t in sorted(groups.values(), key=lambda g: -g[1])[:top]]}
+        return out
+
+    def sheet_recent(self, sheet: str, tx_type: str = "expense", n: int = 5) -> list:
+        """Latest entries from the sheet, newest date first (falls back to linda.db)."""
+        try:
+            rows = [r for r in self.sheet_entries(sheet) if r["type"] == tx_type]
+        except FinanceError as e:
+            print(f"[finance] {sheet}: sheet not readable, using linda.db: {e}")
+            return self.recent(sheet, tx_type, n)
+        rows.sort(key=lambda r: (r["date"], r["row"]), reverse=True)
+        return [{"tx_date": r["date"].isoformat(), "amount": int(r["amount"]), "description": r["desc"]}
+                for r in rows[:n]]
+
     # -- analysis (SQL only; only covers entries made through Linda)
     @staticmethod
     def _month_range(month: Optional[str]):
@@ -765,10 +836,10 @@ class FinanceService:
 
 
     def format_summary(self, month: Optional[str] = None) -> str:
-        s = self.summary(month)
+        s = self.sheet_summary(month)
         if not s["sheets"]:
-            return f"📊 {s['month']}: no entries made through Linda yet."
-        lines = [f"📊 {s['month']} (entries made through Linda)"]
+            return f"📊 {s['month']}: no entries in the sheets."
+        lines = [f"📊 {s['month']} (from the Google Sheets)"]
         for sh, d in s["sheets"].items():
             lines.append(f"{sh}: +{fmt_amount(d['income'])} · −{fmt_amount(d['expense'])} · "
                          f"balance {fmt_amount(d['balance'])} UZS")

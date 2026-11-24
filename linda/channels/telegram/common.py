@@ -111,13 +111,15 @@ TASKISH = re.compile(r"\b(tasks?|to-?do|close|closed|done|finished|completed|imp
 
 def _balance_card(tg, svc, sheet):
     icon, name = SHEETS[sheet]
-    b = svc.balance(sheet)
-    left = b["inc"] - b["exp"]
-    lines = [f"🟢 Total income: <b>{_money(b['inc'])}</b>", f"🔴 Total expenses: <b>{_money(b['exp'])}</b>",
+    b = svc.sheet_summary("all", [sheet])["sheets"].get(sheet)
+    if not b:
+        return tg.send_styled(f"{name} finance · all time", icon=icon, intro="No entries in the sheet yet.")
+    left = b["balance"]
+    lines = [f"🟢 Total income: <b>{_money(b['income'])}</b>", f"🔴 Total expenses: <b>{_money(b['expense'])}</b>",
              f"{'💰' if left >= 0 else '⚠️'} Left: <b>{_money(left, sign=True)}</b>"]
-    since = f" since {b['since']}" if b["since"] else ""
+    src = "Google Sheet" if b["source"] == "sheet" else "only entries made through Linda (sheet not readable)"
     return tg.send_styled(f"{name} finance · all time", [("", lines)],
-                          footer=f"UZS · {b['n']} entries{since}", icon=icon)
+                          footer=f"UZS · {src} · {b['n']} entries since {b['since']:%d.%m.%Y}", icon=icon)
 
 
 def _lang(agent):
