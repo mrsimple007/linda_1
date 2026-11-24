@@ -110,6 +110,7 @@ class Tx:
     row: Optional[int] = None
     merged: bool = False                 # True = amount was added to an existing row
     prev_amount: Optional[int] = None    # that row's amount before the addition
+    ask: Optional[str] = None            # set = NOT written: it looks like this existing row, ask "add or new?"
 
 
 # --------------------------------------------------------------------------- parsing
@@ -137,6 +138,10 @@ _CO_MARK = re.compile(
 _MY_MARK = re.compile(
     r"(?<!\w)(?:(?:in|to|into)\s+)?(?:my[\s_-]?finance(?:\s+(?:sheet|table|list|tab))?"
     r"|personal\s+(?:sheet|table|list|tab))(?!\w)", re.I)
+# the sheet named alone on the last line or after a dash: "-1 300 000 Perevod\ncompany", "... - company"
+_TAIL_SHEET = re.compile(
+    r"(?:\n|\s[-\u2013\u2014])\s*(?:the\s+)?(?:(?P<co>company|kompaniya|компания|biz|business)"
+    r"|(?P<my>my[\s_-]?finance|personal|shaxsiy|личное))(?:\s+(?:sheet|table|list|tab))?\s*$", re.I)
 _MULT = {"k": 10**3, "ming": 10**3, "тыс": 10**3, "m": 10**6, "mln": 10**6, "млн": 10**6, "mlrd": 10**9}
 _REL = re.compile(r"(?<!\w)(yesterday|вчера|kecha|today|сегодня|bugun)(?!\w)", re.I)
 _REL_DAYS = {"yesterday": -1, "вчера": -1, "kecha": -1, "today": 0, "сегодня": 0, "bugun": 0}
@@ -191,12 +196,17 @@ def parse_message(text: str, default_sheet: str = "my_finance", today: Optional[
         raise ParseError("The amount must be greater than zero.")
 
     rest = m.group("rest")
+    tail = _TAIL_SHEET.search(rest)
+    if tail:
+        rest = rest[: tail.start()]
     mine = _MY_MARK.search(rest)          # check "my finance" first: it contains the word "finance"
     if mine:
         rest = rest[: mine.start()] + " " + rest[mine.end():]
     comp = _CO_MARK.search(rest)
     if comp:
         rest = rest[: comp.start()] + " " + rest[comp.end():]
+    if tail:
+        mine, comp = mine or tail.group("my"), comp or tail.group("co")
     if mine and comp:
         raise ParseError("You named both sheets. Say only one: 'c:' / 'finance sheet' or 'my finance'.")
     if not pm:                            # an explicit "c:" / "m:" prefix always wins
@@ -320,6 +330,7 @@ class Slot:
     write_label: bool = False        # blocks: the Tur cell is empty, so write the label
     copy_from: Optional[int] = None  # flat: row whose format + dropdown to copy
     merge: bool = False              # flat: ADD to this existing row instead of writing a new one
+    ask: bool = False                # merge guessed by the LLM (wording differs): ask the user before adding
     prev: Optional[int] = None       # merge: the row's amount before the addition (None = was blank)
     name: str = ""                   # merge: the row's own description; new row: canonical name to use
 
@@ -456,23 +467,33 @@ class FlatSheet:
         if isinstance(idx, int) and not isinstance(idx, bool) and 1 <= idx <= len(month):
             if _different(tx.description, month[idx - 1]["desc"]):
                 return None                                # e.g. another person's wedding: its own row
-            return ("merge", month[idx - 1])               # the model only picks a NUMBER; code does the rest
+            return ("ask", month[idx - 1])                 # the model only picks a NUMBER; the user decides
         name = obj.get("name")
         if isinstance(name, str) and name in earlier and not _different(tx.description, name):
             return ("name", name)
         return None
 
     # -- locate / write / undo
-    def locate(self, tx: Tx, chooser=None) -> Slot:
+    def locate(self, tx: Tx, chooser=None, merge=None) -> Slot:
+        """merge=None: same wording merges, a row the LLM thinks matches comes back with ask=True;
+        merge=False: always a new row, under the user's own words; merge="<row name>": add to that row."""
         vals = self.api.get(self.id, a1(self.tab, "A:D"))
         last = self._last_row(vals)
         slot = Slot(row=last + 1, copy_from=last if last > self.header_rows else None)
+        to_slot = lambda e, ask=False: Slot(row=e["row"], merge=True, ask=ask, name=e["desc"],
+                                            prev=None if e["amount"] is None else int(e["amount"]))
+        if merge is False:
+            return slot
+        if isinstance(merge, str):
+            key = (tx.date.year, tx.date.month)
+            for e in self._entries(vals):
+                if e["type"] == tx.type and e["desc"] == merge and (e["date"].year, e["date"].month) == key:
+                    return to_slot(e)
+            raise FinanceError(f"The row “{merge}” is not in this month's {tx.type} rows any more. Nothing written.")
         if self.merge:
             hit = self._match(tx, self._entries(vals), chooser)
-            if hit and hit[0] == "merge":
-                e = hit[1]
-                return Slot(row=e["row"], merge=True, name=e["desc"],
-                            prev=None if e["amount"] is None else int(e["amount"]))
+            if hit and hit[0] in ("merge", "ask"):
+                return to_slot(hit[1], ask=hit[0] == "ask")
             if hit:
                 slot.name = hit[1]
         return slot
@@ -541,7 +562,7 @@ class BlockSheet:
             f"(and shift the other block if it moved)."
         )
 
-    def locate(self, tx: Tx, chooser=None) -> Slot:
+    def locate(self, tx: Tx, chooser=None, merge=None) -> Slot:
         return self.peek(tx.type)
 
     def write(self, tx: Tx, slot: Slot) -> None:
@@ -656,7 +677,9 @@ class FinanceService:
         sign = "➕ Income" if tx.type == "income" else "➖ Expense"
         return f"{tx.sheet} · {sign} {fmt_amount(tx.amount)} UZS · {tx.date:%d.%m.%Y} · {tx.description}"
 
-    def add(self, tx: Tx, confirmed: bool = False, source: str = "telegram") -> Tx:
+    def add(self, tx: Tx, confirmed: bool = False, source: str = "telegram", merge=None) -> Tx:
+        """Write tx. merge: None = decide (a guessed match is NOT written: tx.ask names the row, ask the user),
+        False = its own row, "<row name>" = add to that row of this month."""
         if self.needs_confirmation(tx) and not confirmed:
             raise FinanceError("This sheet needs confirmation first.")
         args = {"sheet": tx.sheet, "type": tx.type, "amount": tx.amount,
@@ -669,7 +692,11 @@ class FinanceService:
             )
             try:
                 ad = self._adapter(tx.sheet)
-                slot = ad.locate(tx, self.chooser)
+                slot = ad.locate(tx, self.chooser, merge=merge)
+                if slot.ask:                       # the user decides: nothing is written yet
+                    self._run("DELETE FROM finance WHERE id=? AND status='pending'", (tx.db_id,))
+                    tx.db_id, tx.ask, tx.prev_amount = None, slot.name, slot.prev
+                    return tx
                 if slot.name:                      # merge: the row's own name; new row: name used in earlier months
                     tx.description = slot.name
                 ad.write(tx, slot)

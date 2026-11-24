@@ -43,15 +43,29 @@ STATUS = {"stats": "📊 Checking your bots' numbers…", "default": "⏳ Lookin
 @contextlib.contextmanager
 def _typing(tg, status=None):
     """Telegram shows 'typing…' for 5 s only: repeat it every 4 s. If the answer takes longer than 2 s, also show a
-    short status line, and delete it once the answer is out."""
-    stop, sid = threading.Event(), {}
+    short status line, and delete it once the answer is out.
+    The lock closes a race: when the answer finishes while the status line is still being sent, the id arrives
+    after the cleanup ran, so the thread deletes it itself (it used to stay under the answer)."""
+    stop, sid, lock = threading.Event(), {}, threading.Lock()
+    def drop(mid):
+        if mid and hasattr(tg, "delete_message"):
+            try:
+                tg.delete_message(mid)
+            except Exception:
+                pass
     def keep():
         n = 0
         while not stop.is_set():
             try:
                 tg.typing()
                 if n == 0 and status and not stop.wait(2) and hasattr(tg, "send_status"):
-                    sid["id"] = tg.send_status(status)
+                    mid = tg.send_status(status)
+                    with lock:
+                        late = stop.is_set()
+                        if not late:
+                            sid["id"] = mid
+                    if late:
+                        drop(mid)
             except Exception:
                 pass
             n += 1
@@ -60,9 +74,10 @@ def _typing(tg, status=None):
     try:
         yield
     finally:
-        stop.set()
-        if sid.get("id") and hasattr(tg, "delete_message"):
-            tg.delete_message(sid["id"])
+        with lock:
+            stop.set()
+            mid = sid.pop("id", None)
+        drop(mid)
 
 
 def on_telegram_text(agent, tg, text):
@@ -88,6 +103,15 @@ def _on_telegram_text(agent, tg, text):
         print(f"[route] pointer message, waiting for what it refers to: {t[:40]!r}")
         return tg.send_styled(S[_lang(agent)]["hint_title"], icon="📎",
                               intro="Okay, send it and I'll take care of it.")
+    fc = getattr(agent, "finance_chat", None)
+    if fc and fc.awaiting() and fc.matches(t):          # "yes" / "add" / "new" answers a finance question
+        reply = fc.handle(t)
+        if reply is not None:
+            print(f"[route] finance_chat answer: {t[:20]!r}")
+            return tg.send_styled("Finance", icon="💰", intro=reply)
+    if fin_refine(agent, tg, t):                         # "November" right after a finance question
+        print(f"[route] finance follow-up: {t[:40]!r}")
+        return
     pend = getattr(agent, "_fin_pending", None)
     if pend and not _pin_like(t, _fin_pin(agent)):
         agent._fin_pending = None                            # not a PIN: the PIN question is dropped, route normally
@@ -104,7 +128,6 @@ def _on_telegram_text(agent, tg, text):
     if finance_gate(agent, tg, t):
         print(f"[route] finance gate: {t[:60]!r}")
         return
-    fc = getattr(agent, "finance_chat", None)
     if fc:
         reply = fc.handle(t)
         if reply is not None:
@@ -155,4 +178,4 @@ def start_telegram(agent, tg):
 from linda.channels.telegram.common import COMMANDS, S, _lang, llm_text  # noqa: E402
 from linda.channels.telegram.commands import _command  # noqa: E402
 from linda.channels.telegram.chat import _free_text  # noqa: E402
-from linda.channels.telegram.finance_gate import _fin_pin, _pin_like, finance_gate  # noqa: E402
+from linda.channels.telegram.finance_gate import _fin_pin, _pin_like, fin_refine, finance_gate  # noqa: E402

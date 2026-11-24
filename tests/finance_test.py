@@ -148,6 +148,17 @@ assert p("-100 000 finance book").sheet == "my_finance" and p("-100 000 finance 
 assert p("-100 000 business lunch").sheet == "my_finance"
 try: p("-1 000 x my finance and finance sheet"); raise SystemExit("both sheets must fail")
 except ParseError: pass
+# the sheet alone on the last line, or after a dash
+t = p("-1 300 000\nPerevod CTO ga 100 euro\ncompany")
+assert (t.sheet, t.description) == ("company", "Perevod CTO ga 100 euro"), t
+t = p("-1 300 000\nPerevod CTO ga 100 euro - company sheet")
+assert (t.sheet, t.description) == ("company", "Perevod CTO ga 100 euro"), t
+t = p("+4 500 000\nUmid til kursi - 350 eur\nCompany sheet")
+assert (t.sheet, t.description) == ("company", "Umid til kursi - 350 eur"), t
+assert p("-50 000 lunch\nmy finance").sheet == "my_finance"
+assert p("-50 000 Uzum company tolov").sheet == "my_finance"       # "company" inside the text is not a sheet
+assert p("-50 000 business lunch").description == "Business lunch"
+assert p("c: -1 000 x\nmy finance").sheet == "company"            # an explicit prefix always wins
 
 # ================= merge into the month's category rows (your Expences layout) =================
 this_m = dt.date.today().replace(day=1)
@@ -178,8 +189,24 @@ assert "row 4" in r and m_api.cells[("C", 4)] == 10_000_000 and m_api.cells[("B"
 r = chat3.handle("-225 000 paid for uzum market")                  # only exists in LAST month: new row, same name
 assert "row 6" in r and m_api.cells[("D", 6)] == "Uzum market" and m_api.cells[("C", 6)] == 225000, r
 
-r = chat3.handle("-60 000 lunch")                                  # different words: the LLM picks row number 2
-assert "Obed" in r and m_api.cells[("C", 3)] == 343000 and len(calls) >= 1, r
+r = chat3.handle("-60 000 lunch")                                  # different words: the LLM picks row 2 -> ASK
+assert "looks like your “Obed”" in r and "283 000 → 343 000" in r and len(calls) >= 1, r
+assert m_api.cells[("C", 3)] == 283000 and chat3.awaiting()       # nothing written yet
+assert svc3._run("SELECT COUNT(*) AS n FROM finance WHERE status='pending'", fetch=True)[0]["n"] == 0
+r = chat3.handle("add")                                            # "add" -> into Obed
+assert "Obed" in r and m_api.cells[("C", 3)] == 343000 and not chat3.awaiting(), r
+
+r = chat3.handle("-20 000 lunch")                                  # asked again; "new" -> its own row, own words
+assert "looks like" in r and chat3.handle("new").startswith("✅ my_finance, row 7"), r
+assert m_api.cells[("D", 7)] == "Lunch" and m_api.cells[("C", 7)] == 20000 and m_api.cells[("C", 3)] == 343000
+assert "Removed" in chat3.handle("undo") and ("D", 7) not in m_api.cells
+
+r = chat3.handle("-20 000 lunch"); assert "looks like" in r       # "no" cancels the question
+assert chat3.handle("no") == "Cancelled." and m_api.cells[("C", 3)] == 343000 and ("D", 7) not in m_api.cells
+r = chat3.handle("-20 000 lunch"); assert "looks like" in r       # a new entry instead of an answer: say it
+r = chat3.handle("-5 000 obed")
+assert r.startswith("(Not saved: “Lunch” 20 000") and m_api.cells[("C", 3)] == 348000, r
+chat3.handle("undo"); assert m_api.cells[("C", 3)] == 343000
 
 r = chat3.handle("-15 000 something unrelated")                    # LLM answers garbage: must NOT merge
 assert "row 7" in r and m_api.cells[("D", 7)] == "Something unrelated" and m_api.cells[("C", 3)] == 343000, r

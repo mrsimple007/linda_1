@@ -155,6 +155,7 @@ def _fin_answer(agent, tg, query):
     svc = getattr(agent, "finance", None)
     if svc is None:
         return tg.send_styled("Finance", icon="💰", intro="Finance is not set up.")
+    agent._fin_last = (query, time.time())               # a follow-up like "November" refines this question
     p = _fin_plan(agent, query)
     print(f"[finance] plan={p}")
     try:
@@ -185,13 +186,42 @@ def _fin_answer(agent, tg, query):
 def _pin_like(t, pin):
     """Could this reply be a PIN attempt? One word, 3-20 characters, and digits in it if the PIN has digits
     ('November' after the PIN question is a new message, not a wrong PIN)."""
+    if pin and hmac.compare_digest(t, pin):
+        return True                                            # the PIN itself, even "2024"-looking digits
     if not re.fullmatch(r"\S{3,20}", t):
         return False
+    if t.isdigit() and pin.isdigit():
+        return True                                            # digits after the PIN question = a PIN attempt
     if any(ch.isdigit() for ch in pin) and not any(ch.isdigit() for ch in t):
         return False
     from linda.business import bot_stats                       # months, bot names, stats/finance words are never a PIN
     return not (bot_stats.REFINE.search(t) or bot_stats.STATS_Q.search(t) or FIN_WORD.search(t)
                 or re.search(r"quizzer|slides?|bots?", t, re.I))
+
+
+FOLLOW_UP = 120          # seconds a short follow-up still belongs to the last finance question
+
+
+def fin_refine(agent, tg, t):
+    """'November', 'company only', 'for my finance' sent right after a finance question refine THAT question
+    (it used to drop the question and reach the brain alone, which answered with tasks)."""
+    if len(t) > 40 or "\n" in t or t.startswith("/") or _pin_like(t, _fin_pin(agent)):
+        return False
+    from linda.business import bot_stats
+    if not (bot_stats.REFINE.search(t) or MY_WORDS.search(t) or CO_WORDS.search(t)):
+        return False
+    now = time.time()
+    pend, last = getattr(agent, "_fin_pending", None), getattr(agent, "_fin_last", None)
+    stats = getattr(agent, "_last_stats", None)
+    if pend and now < pend[1]:
+        agent._fin_pending = (f"{pend[0]} ({t})", now + 120)
+        tg.send_styled("Finance", icon="🔒", intro=f"Noted: {esc(t)}. Send your finance PIN to see this.")
+        return True
+    if (last and now - last[1] < FOLLOW_UP and now < getattr(agent, "_fin_until", 0)
+            and not (stats and stats[2] > last[1])):           # a later bot-stats question owns the follow-up
+        _fin_answer(agent, tg, f"{last[0]} ({t})")
+        return True
+    return False
 
 
 def _fin_pin(agent):
