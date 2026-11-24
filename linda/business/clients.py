@@ -851,10 +851,21 @@ def client_list(agent, a, text):
     done = _bool(a.get("done"), False)
     rows = svc.listing(step, done)
     title = "Clients" if step is None else f"Clients {'with' if done else 'without'} {step}. {svc.steps[step]}"
-    lines = [f"• <b>{esc(r['name'])}</b> · {r['done']}/{r['total']}\n   next: {esc(r['next'])}" for r in rows]
+    line = lambda r: f"• <b>{esc(r['name'])}</b> · {r['done']}/{r['total']}\n   next: {esc(r['next'])}"
+    if step is None:                     # the whole list: in progress (most done first), not started, finished
+        rows = sorted(rows, key=lambda r: -r["done"])          # stable: same count keeps the order they were added
+        groups = [("🔄 In progress", [r for r in rows if 0 < r["done"] < r["total"]]),
+                  ("⏳ Not started", [r for r in rows if r["done"] == 0]),
+                  ("✅ Finished", [r for r in rows if r["done"] >= r["total"]])]
+        groups = [(g, rs) for g, rs in groups if rs]
+        rows = [r for _, rs in groups for r in rs]
+        sections = [(f"{g} ({len(rs)})", [line(r) if g != "✅ Finished" else f"• <b>{esc(r['name'])}</b> · "
+                                          f"{r['done']}/{r['total']}" for r in rs]) for g, rs in groups]
+    else:
+        sections = [("", [line(r) for r in rows])]
     tg = _tg(agent)
     if tg:
-        tg.send_styled(f"{title} ({len(rows)})", [("", lines or ["none"])], icon="👥")
+        tg.send_styled(f"{title} ({len(rows)})", sections if rows else [("", ["none"])], icon="👥")
         return agent.say(f"The list ({len(rows)} clients) was sent; reply with one short line.")
     agent.say(f"{title}: " + (", ".join(r["name"] for r in rows) or "none") + ".")
 
